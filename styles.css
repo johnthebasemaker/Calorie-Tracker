@@ -1,0 +1,309 @@
+/* ---------------------------------------------------------------
+   Macros — mobile-first calorie tracker
+   --------------------------------------------------------------- */
+
+:root {
+  --bg:        #f4f5f7;
+  --card:      #ffffff;
+  --card-2:    #f0f1f4;
+  --line:      #e2e4e9;
+  --text:      #14161a;
+  --dim:       #6c7280;
+  --faint:     #9aa0a8;
+  --accent:    #1f7a4d;
+  --accent-2:  #2ea86a;
+  --p:         #2f7de1;
+  --c:         #d99a1e;
+  --f:         #c2543f;
+  --danger:    #c0382b;
+  --over:      #c0382b;
+  --radius:    14px;
+  --tabh:      58px;
+  --shadow:    0 1px 2px rgba(16,18,21,.06), 0 4px 14px rgba(16,18,21,.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:     #101215;
+    --card:   #191c21;
+    --card-2: #21252b;
+    --line:   #2a2f36;
+    --text:   #e9ecf0;
+    --dim:    #9099a3;
+    --faint:  #6b747e;
+    --accent: #34c07a;
+    --accent-2:#48d68f;
+    --p:      #5ba4f5;
+    --c:      #e8b647;
+    --f:      #ef7a63;
+    --danger: #ef6a5a;
+    --over:   #ef6a5a;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior-y: none;
+  overflow-x: hidden;
+}
+
+body {
+  padding-bottom: calc(var(--tabh) + env(safe-area-inset-bottom));
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ------------------------------ top bar ------------------------------ */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 4px;
+  padding: calc(env(safe-area-inset-top) + 8px) 10px 8px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.datenav {
+  width: 40px; height: 40px; flex: 0 0 40px;
+  font-size: 24px; line-height: 1;
+  background: none; border: 0; color: var(--dim); border-radius: 10px;
+}
+.datenav:active { background: var(--card-2); }
+.datewrap { flex: 1; position: relative; text-align: center; font-weight: 600; }
+.datewrap input[type=date] {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; border: 0; background: none; -webkit-appearance: none;
+}
+
+/* ------------------------------ layout ------------------------------ */
+main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
+.hidden { display: none !important; }
+
+.sect {
+  font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--faint); margin: 22px 2px 8px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.sect small { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--faint); }
+.hint { font-size: 13px; color: var(--dim); margin: 8px 2px; line-height: 1.5; }
+.hint.foot { margin-top: 26px; color: var(--faint); font-size: 12px; }
+.empty { font-size: 14px; color: var(--faint); text-align: center; padding: 18px 10px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow);
+}
+
+/* ------------------------------ summary ------------------------------ */
+.kcalrow { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.kcalbig { font-size: 40px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
+.kcalbig .unit { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 6px; }
+.kcalsub { font-size: 14px; color: var(--dim); margin-top: 6px; }
+.kcalsub.over { color: var(--over); font-weight: 600; }
+
+.ringwrap { position: relative; width: 74px; height: 74px; flex: 0 0 74px; }
+.ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 5; }
+.ring-bg { stroke: var(--card-2); }
+.ring-fg {
+  stroke: var(--accent); stroke-linecap: round;
+  stroke-dasharray: 119.4; stroke-dashoffset: 119.4;
+  transition: stroke-dashoffset .35s ease;
+}
+.ring-fg.over { stroke: var(--over); }
+.ringpct {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 14px; font-weight: 700;
+}
+
+.bars { margin-top: 18px; display: grid; gap: 12px; }
+.barhead { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+.barhead span:first-child { color: var(--dim); }
+.barhead span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.track { height: 7px; border-radius: 99px; background: var(--card-2); overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; border-radius: 99px; transition: width .3s ease; }
+.bar[data-macro=p] .track i { background: var(--p); }
+.bar[data-macro=c] .track i { background: var(--c); }
+.bar[data-macro=f] .track i { background: var(--f); }
+.track i.over { background: var(--over) !important; }
+
+/* ------------------------------ chips ------------------------------ */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  border: 1px solid var(--line); background: var(--card);
+  color: var(--text); font-size: 14px; font-weight: 500;
+  padding: 9px 13px; border-radius: 99px; white-space: nowrap;
+}
+.chip:active { background: var(--card-2); }
+.chip small { color: var(--dim); margin-left: 5px; font-weight: 400; }
+.chip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* ------------------------------ lists ------------------------------ */
+/* minmax(0,1fr) stops a long product name from widening the whole page —
+   <button> does not shrink below its max-content width on its own. */
+.list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.list > li { min-width: 0; }
+.row {
+  min-width: 0;
+  display: flex; align-items: center; gap: 12px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow);
+  width: 100%; text-align: left; color: inherit; font: inherit;
+}
+.row:active { background: var(--card-2); }
+.row .info { flex: 1; min-width: 0; }
+.row .nm { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .sub { font-size: 12.5px; color: var(--dim); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .kc { text-align: right; font-variant-numeric: tabular-nums; }
+.row .kc b { display: block; font-size: 16px; font-weight: 700; }
+.row .kc span { font-size: 11.5px; color: var(--dim); }
+.tag {
+  font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 2px 6px; border-radius: 5px; background: var(--card-2); color: var(--faint);
+  margin-left: 6px; vertical-align: 2px;
+}
+.tag.mine { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.tag.off  { background: color-mix(in srgb, var(--p) 18%, transparent); color: var(--p); }
+
+/* ------------------------------ buttons ------------------------------ */
+button { font-family: inherit; cursor: pointer; }
+.wide {
+  display: block; width: 100%; margin-top: 10px;
+  padding: 14px; border: 0; border-radius: 12px;
+  background: var(--accent); color: #fff; font-size: 16px; font-weight: 600;
+}
+.wide:active { filter: brightness(.92); }
+.wide.ghost { background: var(--card-2); color: var(--text); border: 1px solid var(--line); }
+.wide.danger { background: var(--danger); color: #fff; }
+.wide.danger.ghost { background: transparent; color: var(--danger); border-color: var(--danger); }
+
+/* ------------------------------ search ------------------------------ */
+.searchbar { position: relative; margin-bottom: 4px; }
+.searchbar input {
+  width: 100%; font-size: 16px; padding: 13px 40px 13px 14px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--card); color: var(--text); -webkit-appearance: none;
+}
+.searchbar input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.searchbar input::-webkit-search-cancel-button,
+.searchbar input::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+.clearbtn {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; border: 0; border-radius: 50%;
+  background: var(--card-2); color: var(--dim); font-size: 18px; line-height: 1;
+}
+
+/* ------------------------------ forms ------------------------------ */
+.form { display: grid; gap: 12px; }
+.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field > span { font-size: 14.5px; color: var(--dim); display: flex; flex-direction: column; }
+.field > span small { font-size: 11px; color: var(--faint); }
+.field input {
+  width: 120px; text-align: right; font-size: 16px; font-variant-numeric: tabular-nums;
+  padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); -webkit-appearance: none;
+}
+.field input[type=text] { width: 60%; text-align: left; }
+.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* ------------------------------ tab bar ------------------------------ */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  height: calc(var(--tabh) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  border-top: 1px solid var(--line);
+}
+.tab {
+  border: 0; background: none; color: var(--faint);
+  font-size: 11px; font-weight: 600;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+}
+.tab .ic { font-size: 17px; line-height: 1; }
+.tab.active { color: var(--accent); }
+
+/* ------------------------------ sheets ------------------------------ */
+.scrim {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(0,0,0,.45); backdrop-filter: blur(2px);
+}
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+  max-width: 620px; margin: 0 auto;
+  background: var(--card); border-radius: 20px 20px 0 0;
+  padding: 8px 18px calc(20px + env(safe-area-inset-bottom));
+  max-height: 88vh; overflow-y: auto;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.3);
+  animation: rise .22s cubic-bezier(.22,.8,.3,1);
+}
+@keyframes rise { from { transform: translateY(100%); } to { transform: none; } }
+.grab { width: 38px; height: 4px; border-radius: 99px; background: var(--line); margin: 4px auto 12px; }
+.sheet h3 { margin: 0 0 4px; font-size: 20px; font-weight: 700; }
+.psmeta { margin: 0 0 16px; font-size: 13px; color: var(--dim); }
+
+.gramrow { display: flex; align-items: center; gap: 10px; }
+.step {
+  width: 52px; height: 52px; flex: 0 0 52px;
+  border: 1px solid var(--line); background: var(--card-2); color: var(--text);
+  border-radius: 14px; font-size: 24px; line-height: 1;
+}
+.step:active { background: var(--line); }
+.graminput {
+  flex: 1; display: flex; align-items: baseline; justify-content: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--bg); border-radius: 14px; padding: 6px 10px;
+}
+.graminput input {
+  width: 100%; text-align: right; border: 0; background: none; color: var(--text);
+  font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums;
+  padding: 6px 0; -webkit-appearance: none;
+}
+.graminput input:focus { outline: none; }
+.graminput span { font-size: 15px; color: var(--dim); font-weight: 600; }
+.psday { margin: 10px 2px 12px; font-size: 13px; color: var(--dim); text-align: center; }
+
+.macrogrid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  margin: 18px 0 4px; text-align: center;
+}
+.macrogrid div {
+  background: var(--card-2); border-radius: 12px; padding: 10px 4px;
+}
+.macrogrid b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.macrogrid span { font-size: 11px; color: var(--dim); }
+.macrogrid div:nth-child(2) b { color: var(--p); }
+.macrogrid div:nth-child(3) b { color: var(--c); }
+.macrogrid div:nth-child(4) b { color: var(--f); }
+.sheetbtns { margin-top: 14px; }
+
+/* ------------------------------ toast ------------------------------ */
+.toast {
+  position: fixed; z-index: 60;
+  left: 14px; right: 14px; bottom: calc(var(--tabh) + env(safe-area-inset-bottom) + 12px);
+  max-width: 560px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #22262c; color: #fff; border-radius: 12px;
+  padding: 13px 16px; font-size: 14px;
+  box-shadow: 0 6px 24px rgba(0,0,0,.35);
+  animation: rise .18s ease;
+}
+.toast button {
+  border: 0; background: none; color: var(--accent-2);
+  font-size: 14px; font-weight: 700; padding: 4px 2px;
+}
+
+/* remove iOS number spinners */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
