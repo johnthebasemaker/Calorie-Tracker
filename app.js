@@ -10,7 +10,13 @@ const KEY = {
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
   names: 'ct.names.v1',     // barcode -> the English name you gave it
+  ai:    'ct.ai.v1',        // { key, model } — device-only, never exported
 };
+
+/* OpenRouter is OpenAI-compatible and returns access-control-allow-origin: *,
+   so the browser can call it directly from the Pages origin with no proxy. */
+const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+const AI_DEFAULT_MODEL = 'openai/gpt-oss-20b:free';
 
 const DEFAULT_TARGETS = { kcal: 2900, p: 130, c: 390, f: 90, water: 3500 };
 
@@ -37,6 +43,7 @@ const state = {
   entries: [],          // food log rows
   water:   [],          // water log rows
   names:   {},          // barcode -> English name
+  ai:      { key: '', model: AI_DEFAULT_MODEL },
   date:    todayStr(),
 };
 
@@ -55,11 +62,13 @@ function load() {
   state.entries = readJSON(KEY.log, []);
   state.water   = readJSON(KEY.water, []);
   state.names   = readJSON(KEY.names, {});
+  state.ai      = Object.assign({ key: '', model: AI_DEFAULT_MODEL }, readJSON(KEY.ai, {}));
 }
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
 const saveNames   = () => writeJSON(KEY.names, state.names);
+const saveAi      = () => writeJSON(KEY.ai, state.ai);
 const saveTargets = () => writeJSON(KEY.set, state.targets);
 
 /* ------------------------------- helpers ------------------------------- */
@@ -80,6 +89,7 @@ function prettyDate(str) {
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const slugify = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || uid();
 const r0   = n => Math.round(n);
 const r1   = n => Math.round(n * 10) / 10;
 const gfmt = n => (n >= 100 ? r0(n) : r1(n));
@@ -416,7 +426,7 @@ function openPortion({ mode, food, entry, grams }) {
   const units = $('#psUnits');
   units.innerHTML = '';
   const opts = (f.u && f.u.length) ? f.u.slice()
-    : (f.serve ? [{ l: '1 serving', g: f.serve }] : []);
+    : (f.serve ? [{ l: f.sl || '1 serving', g: f.serve }] : []);
   [50, 100, 200].forEach(g => { if (!opts.some(o => o.g === g)) opts.push({ l: g + ' g', g }); });
   opts.forEach(o => {
     const b = document.createElement('button');
@@ -545,27 +555,50 @@ function saveRename() {
    FOOD EDITOR SHEET
    ===================================================================== */
 
-let fsEditingId = null;
+let fsEditingId = null, fsForceId = null, fsAi = null;
+const FS_MICRO_IDS = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
 
-function openFoodEditor(food, presetName) {
+/* `food`  -> editing something already in the library
+   `opts.prefill` -> a new food with values filled in for review (the AI path)
+   `opts.ai`      -> render as the estimate confirm screen
+   `opts.forceId` -> save under this id (a barcode) instead of a fresh one */
+function openFoodEditor(food, presetName, opts = {}) {
+  const src = food || opts.prefill || null;
   fsEditingId = food ? food.id : null;
+  fsForceId   = opts.forceId || null;
+  fsAi        = opts.ai || null;
+
   const isSeedOverride = food && SEED_FOODS.some(s => s.id === food.id);
 
-  $('#fsTitle').textContent = food ? 'Edit food' : 'New food';
-  $('#fName').value  = food ? food.n : (presetName || '');
-  $('#fKcal').value  = food ? food.kcal : '';
-  $('#fP').value     = food ? food.p : '';
-  $('#fC').value     = food ? food.c : '';
-  $('#fF').value     = food ? food.f : '';
-  $('#fServe').value = food ? (food.serve || (food.u && food.u[0] ? food.u[0].g : '')) : '';
+  $('#fsTitle').textContent = food ? 'Edit food' : fsAi ? 'Check the estimate' : 'New food';
+  $('#fName').value  = src ? (src.n || presetName || '') : (presetName || '');
+  $('#fKcal').value  = src && src.kcal != null ? src.kcal : '';
+  $('#fP').value     = src && src.p != null ? src.p : '';
+  $('#fC').value     = src && src.c != null ? src.c : '';
+  $('#fF').value     = src && src.f != null ? src.f : '';
+  $('#fServe').value = src ? (src.serve || (src.u && src.u[0] ? src.u[0].g : '')) : '';
+  $('#fServeLabel').value = src ? (src.sl || (src.u && src.u[0] ? src.u[0].l : '')) : '';
 
-  const ids = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
   MICROS.forEach(m => {
-    $(ids[m.k]).value = food && typeof food[m.k] === 'number' ? food[m.k] : '';
+    $(FS_MICRO_IDS[m.k]).value = src && typeof src[m.k] === 'number' ? src[m.k] : '';
   });
-  /* Open the extras straight away if this food already has some. */
-  const anyMicro = food && MICROS.some(m => typeof food[m.k] === 'number');
-  setExpanded($('#fsMoreBtn'), $('#fsMicros'), !!anyMicro);
+
+  /* AI results always open expanded — the whole point is that you check them. */
+  const anyMicro = src && MICROS.some(m => typeof src[m.k] === 'number');
+  setExpanded($('#fsMoreBtn'), $('#fsMicros'), !!(anyMicro || fsAi));
+
+  const banner = $('#fsAiBanner');
+  banner.classList.toggle('hidden', !fsAi);
+  if (fsAi) {
+    const bits = [];
+    if (fsAi.confidence) bits.push(`${fsAi.confidence} confidence`);
+    if (fsAi.model) bits.push(fsAi.model);
+    $('#fsAiMeta').textContent =
+      `Estimated from “${fsAi.desc}” — these are typical values, not measured. `
+      + `Adjust anything that looks wrong.${bits.length ? ' (' + bits.join(' · ') + ')' : ''}`;
+  }
+  $('#fsIntro').classList.toggle('hidden', !!fsAi);
+  $('#fsSave').textContent = fsAi ? 'Confirm & Save' : 'Save food';
 
   const del = $('#fsDelete');
   del.classList.toggle('hidden', !food);
@@ -591,8 +624,13 @@ function saveFoodFromEditor() {
   if (!name)        { toast('Name it first'); return; }
   if (!(kcal >= 0)) { toast('Calories per 100 g are required'); return; }
 
+  /* Keyed to the barcode when there is one, otherwise to the name for AI
+     foods, so re-estimating the same thing updates it instead of duplicating. */
+  const id = fsEditingId || fsForceId
+    || (fsAi ? 'usr:' + slugify(name) : 'usr:' + uid());
+
   const rec = {
-    id: fsEditingId || 'usr:' + uid(),
+    id,
     n: name,
     kcal,
     p: parseFloat($('#fP').value) || 0,
@@ -602,16 +640,20 @@ function saveFoodFromEditor() {
     g: 'My foods',
   };
   const serve = parseFloat($('#fServe').value);
-  if (serve > 0) rec.serve = serve;
+  if (serve > 0) {
+    rec.serve = serve;
+    const label = $('#fServeLabel').value.trim();
+    if (label) rec.sl = label;
+  }
+  if (fsAi) { rec.ai = 1; if (fsAi.confidence) rec.aiConf = fsAi.confidence; }
 
   /* Micros: a filled field is stored as a number. A field cleared by hand
      is stored as null, which reads as "unknown" everywhere and is the only
      way to drop a built-in seed value. A field that was blank all along is
      omitted, so it can still inherit from the seed food. */
-  const ids = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
   const inherited = fsEditingId ? (foodById(fsEditingId) || {}) : {};
   MICROS.forEach(m => {
-    const v = numOrUndef($(ids[m.k]).value);
+    const v = numOrUndef($(FS_MICRO_IDS[m.k]).value);
     if (v !== undefined) rec[m.k] = v;
     else if (typeof inherited[m.k] === 'number') rec[m.k] = null;
   });
@@ -621,12 +663,13 @@ function saveFoodFromEditor() {
   else state.custom.push(rec);
   saveFoods();
 
+  const wasAi = !!fsAi;
   closeSheets();
   renderLibrary();
-  toast(`${name} saved to your library`);
+  toast(wasAi ? `${name} saved — estimate accepted` : `${name} saved to your library`);
 
   /* Straight into logging it — that's why you added it. */
-  if (i < 0) openPortion({ mode: 'add', food: foodById(rec.id) });
+  if (i < 0 || wasAi) openPortion({ mode: 'add', food: foodById(rec.id) });
 }
 
 function deleteFoodFromEditor() {
@@ -657,6 +700,7 @@ function runSearch(q) {
   if (idle) { renderRecent(); return; }
 
   $('#createTerm').textContent = q.trim();
+  $('#aiTerm').textContent = q.trim();
 
   const local = searchFoods(q);
   const list = $('#localResults');
@@ -672,8 +716,9 @@ function foodRow(f, onClick, subOverride) {
   const li = document.createElement('li');
   const b = document.createElement('button');
   b.className = 'row';
-  const tag = f.src === 'user' ? '<span class="tag mine">mine</span>'
-            : f.src === 'off'  ? '<span class="tag off">packaged</span>' : '';
+  const tag = (f.ai ? '<span class="tag ai">AI</span>' : '')
+            + (f.src === 'user' ? '<span class="tag mine">mine</span>'
+             : f.src === 'off'  ? '<span class="tag off">packaged</span>' : '');
   b.innerHTML = `
     <div class="info">
       <div class="nm">${escapeHtml(f.n)}${tag}</div>
@@ -973,19 +1018,282 @@ async function lookupBarcode(code) {
     const food = data.product ? offToFood(data.product) : null;
 
     if (!food) {
-      toast('Not in Open Food Facts — add it yourself');
-      openFoodEditor(null, '');
+      openNotFound({ code });
       return;
     }
     rememberOffFood(food);
     openPortion({ mode: 'add', food });
     if (food.needsRename) toast('No English name on file — tap Rename');
   } catch {
-    toast('Could not reach Open Food Facts — add it manually');
-    openFoodEditor(null, '');
+    toast('Could not reach Open Food Facts');
+    openNotFound({ code });
   } finally {
     scanBusy = false;
   }
+}
+
+/* =====================================================================
+   AI ESTIMATION  (OpenRouter, browser-direct — no proxy, no backend)
+   ===================================================================== */
+
+const AI_SYSTEM = [
+  'You are a nutrition reference. Given a short food description, return typical values',
+  'for an average, commonly prepared version of that food.',
+  '',
+  'Rules:',
+  '- Every nutrient value is PER 100 g of the food as eaten (per 100 ml if it is a drink).',
+  '- kcal is kilocalories. protein_g, carbs_g, fat_g, fiber_g, sugar_g are grams.',
+  '  sodium_mg, cholesterol_mg, calcium_mg, iron_mg are milligrams.',
+  '- Keep it internally consistent: protein_g*4 + carbs_g*4 + fat_g*9 must be close to kcal.',
+  '- portion_label and portion_g describe ONE typical serving as sold or served,',
+  '  e.g. portion_label "1 wrap" with portion_g 250.',
+  '- name: a clean English name in title case, no packaging text, no marketing words.',
+  '- confidence: "high" for standard well-known foods, "medium", or "low" if the',
+  '  description is vague or the food varies enormously.',
+  '- Use null for a single value only if it genuinely cannot be estimated.',
+  '- Reply with JSON only. No prose, no markdown fences.',
+  '',
+  'JSON shape:',
+  '{"name":string,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,',
+  ' "fiber_g":number,"sugar_g":number,"sodium_mg":number,"cholesterol_mg":number,',
+  ' "calcium_mg":number,"iron_mg":number,"portion_label":string,"portion_g":number,',
+  ' "confidence":"high"|"medium"|"low"}',
+].join('\n');
+
+/* Field aliases, because a small model will not always use our exact keys.
+   Keys are compared after lowercasing and stripping non-alphanumerics. */
+const AI_FIELDS = [
+  { to: 'kcal', min: 0, max: 900,   aliases: ['kcal', 'calories', 'energykcal', 'energy', 'caloriesper100g', 'kcalper100g'] },
+  { to: 'p',    min: 0, max: 100,   aliases: ['proteing', 'protein', 'proteins'] },
+  { to: 'c',    min: 0, max: 100,   aliases: ['carbsg', 'carbs', 'carbohydratesg', 'carbohydrates', 'carbohydrate', 'totalcarbohydrate'] },
+  { to: 'f',    min: 0, max: 100,   aliases: ['fatg', 'fat', 'fats', 'totalfat'] },
+  { to: 'fb',   min: 0, max: 100,   aliases: ['fiberg', 'fiber', 'fibreg', 'fibre', 'dietaryfiber', 'dietaryfibre'] },
+  { to: 'sg',   min: 0, max: 100,   aliases: ['sugarg', 'sugar', 'sugarsg', 'sugars', 'totalsugars'] },
+  { to: 'na',   min: 0, max: 20000, aliases: ['sodiummg', 'sodium'] },
+  { to: 'ch',   min: 0, max: 5000,  aliases: ['cholesterolmg', 'cholesterol'] },
+  { to: 'ca',   min: 0, max: 5000,  aliases: ['calciummg', 'calcium'] },
+  { to: 'fe',   min: 0, max: 200,   aliases: ['ironmg', 'iron'] },
+];
+
+const normKey = k => String(k).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/per100(g|ml)$/, '');
+
+/* Models wrap JSON in fences or prose often enough that this has to be lenient. */
+function extractJson(text) {
+  if (!text) return null;
+  const attempts = [text];
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) attempts.push(fenced[1]);
+  const first = text.indexOf('{'), last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) attempts.push(text.slice(first, last + 1));
+
+  for (const a of attempts) {
+    try {
+      const v = JSON.parse(String(a).trim());
+      if (v && typeof v === 'object') return v;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
+function coerceEstimate(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+
+  /* Flatten one level, so {"nutrition":{...}} or {"per_100g":{...}} still works. */
+  const flat = {};
+  const absorb = obj => {
+    Object.keys(obj).forEach(k => {
+      const v = obj[k];
+      if (v && typeof v === 'object' && !Array.isArray(v)) absorb(v);
+      else if (!(normKey(k) in flat)) flat[normKey(k)] = v;
+    });
+  };
+  absorb(raw);
+
+  const num = v => {
+    if (v === null || v === undefined || v === '') return undefined;
+    const n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const values = {};
+  AI_FIELDS.forEach(fld => {
+    for (const a of fld.aliases) {
+      if (a in flat) {
+        const n = num(flat[a]);
+        if (n !== undefined && n >= fld.min && n <= fld.max) { values[fld.to] = r1(n); return; }
+      }
+    }
+  });
+
+  /* Calories are the one field we cannot proceed without. */
+  if (values.kcal === undefined) return null;
+
+  const pick = (...keys) => { for (const k of keys) if (flat[k] != null && flat[k] !== '') return flat[k]; };
+  const conf = String(pick('confidence', 'certainty') || '').toLowerCase();
+
+  return {
+    name:       String(pick('name', 'foodname', 'productname', 'title') || '').trim(),
+    values,
+    portionLabel: String(pick('portionlabel', 'servinglabel', 'servingname', 'portionname') || '').trim(),
+    portionG:   num(pick('portiong', 'portiongrams', 'servingg', 'servingsizeg', 'servingsize', 'portionsize')),
+    confidence: ['high', 'medium', 'low'].includes(conf) ? conf : '',
+  };
+}
+
+/* ------------------------------ the call ------------------------------ */
+
+async function aiRequest(description, { timeout = 30000 } = {}) {
+  const key = (state.ai.key || '').trim();
+  if (!key) { const e = new Error('nokey'); e.code = 'nokey'; throw e; }
+  const model = (state.ai.model || '').trim() || AI_DEFAULT_MODEL;
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: AI_SYSTEM },
+      { role: 'user', content: 'Food: ' + description },
+    ],
+    temperature: 0.2,
+    max_tokens: 700,
+  };
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+
+  const send = async withFormat => {
+    const payload = withFormat
+      ? Object.assign({}, body, { response_format: { type: 'json_object' } })
+      : body;
+    const res = await fetch(AI_ENDPOINT, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': location.origin,
+        'X-Title': 'Macros',
+      },
+      body: JSON.stringify(payload),
+    });
+    return res;
+  };
+
+  try {
+    /* Not every model on OpenRouter accepts response_format, so fall back
+       to plain prompting rather than failing the whole estimate. */
+    let res = await send(true);
+    if (res.status === 400 || res.status === 422) res = await send(false);
+
+    if (!res.ok) {
+      let detail = '';
+      try { const j = await res.json(); detail = (j.error && (j.error.message || j.error.code)) || ''; } catch {}
+      const e = new Error(detail || ('HTTP ' + res.status));
+      e.code = res.status === 401 || res.status === 403 ? 'auth'
+             : res.status === 402 ? 'credits'
+             : res.status === 429 ? 'rate'
+             : 'http';
+      e.status = res.status;
+      throw e;
+    }
+
+    const data = await res.json();
+    const text = data && data.choices && data.choices[0]
+      && data.choices[0].message && data.choices[0].message.content;
+    const est = coerceEstimate(extractJson(text));
+    if (!est) { const e = new Error('unparsable'); e.code = 'parse'; e.raw = text; throw e; }
+    est.model = (data.model || model);
+    return est;
+  } catch (err) {
+    if (err.name === 'AbortError') { const e = new Error('timeout'); e.code = 'timeout'; throw e; }
+    if (!err.code) err.code = /Failed to fetch|NetworkError|Load failed/i.test(err.message || '') ? 'network' : 'unknown';
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function aiErrorText(err) {
+  switch (err && err.code) {
+    case 'nokey':   return 'No API key yet. Settings → AI estimation → paste your OpenRouter key.';
+    case 'auth':    return 'OpenRouter rejected the key. Check it in Settings, or generate a new one.';
+    case 'credits': return 'That key is out of credit. Add credit on openrouter.ai, or switch to a “:free” model in Settings.';
+    case 'rate':    return 'Rate limited — free OpenRouter models allow only a few calls a minute. Wait a moment and try again.';
+    case 'timeout': return 'The model took too long. Try again, or pick a faster model in Settings.';
+    case 'network': return 'Could not reach OpenRouter. Check your connection.';
+    case 'parse':   return 'The model replied with something unreadable. Try again, or use a different model in Settings.';
+    default:        return 'Estimate failed: ' + ((err && err.message) || 'unknown error') + '.';
+  }
+}
+
+/* ------------------------------ the flow ------------------------------ */
+
+let aiCtx = { code: null, term: '' };   // what we are estimating for
+let aiInFlight = false;
+
+/* Barcode or search miss: offer manual entry and AI side by side. */
+function openNotFound({ code, term }) {
+  aiCtx = { code: code || null, term: term || '' };
+  $('#nfBody').textContent = code
+    ? `Barcode ${code} isn’t in Open Food Facts.`
+    : `Nothing found for “${term}”.`;
+  showSheet('#nfSheet');
+}
+
+function openAiDescribe({ code, term }) {
+  aiCtx = { code: code || aiCtx.code, term: term || aiCtx.term };
+  $('#aiDesc').value = aiCtx.term || '';
+  $('#aiError').classList.add('hidden');
+  $('#aiLoading').classList.add('hidden');
+  $('#aiGo').disabled = false;
+
+  const model = (state.ai.model || AI_DEFAULT_MODEL);
+  $('#aiSheetNote').textContent = state.ai.key
+    ? (aiCtx.code ? `Will be saved against barcode ${aiCtx.code}. Model: ${model}` : `Model: ${model}`)
+    : 'No API key saved yet — add one in Settings → AI estimation first.';
+
+  showSheet('#aiSheet');
+  setTimeout(() => $('#aiDesc').focus(), 80);
+}
+
+async function runAiEstimate() {
+  if (aiInFlight) return;
+  const desc = $('#aiDesc').value.trim();
+  if (desc.length < 3) { toast('Describe the food in a few words first'); return; }
+
+  aiInFlight = true;
+  $('#aiGo').disabled = true;
+  $('#aiError').classList.add('hidden');
+  $('#aiLoading').classList.remove('hidden');
+  $('#aiLoadingMsg').textContent = 'Asking the model…';
+
+  try {
+    const est = await aiRequest(desc);
+    closeSheets();
+    openEstimateConfirm(est, desc);
+  } catch (err) {
+    $('#aiLoading').classList.add('hidden');
+    const box = $('#aiError');
+    box.innerHTML = '<b>Could not estimate</b>' + escapeHtml(aiErrorText(err));
+    box.classList.remove('hidden');
+    $('#aiGo').disabled = false;
+  } finally {
+    aiInFlight = false;
+  }
+}
+
+/* Nothing is saved until Confirm & Save on this screen. */
+function openEstimateConfirm(est, desc) {
+  const name = est.name || desc;
+  const prefill = Object.assign({ n: name }, est.values);
+  if (est.portionG > 0) {
+    prefill.serve = Math.round(est.portionG);
+    prefill.sl = est.portionLabel || '1 serving';
+  }
+  openFoodEditor(null, name, {
+    prefill,
+    forceId: aiCtx.code ? 'off:' + aiCtx.code : null,
+    ai: { confidence: est.confidence, model: est.model, desc },
+  });
 }
 
 /* =====================================================================
@@ -1014,7 +1322,34 @@ function renderSettings() {
   $('#tC').value = state.targets.c;
   $('#tF').value = state.targets.f;
   $('#tW').value = state.targets.water;
+  $('#aiKey').value = state.ai.key || '';
+  $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
+  renderAiStatus();
   checkTargetMath();
+}
+
+function renderAiStatus(msg) {
+  const el = $('#aiStatus');
+  if (msg) { el.textContent = msg; return; }
+  const k = (state.ai.key || '').trim();
+  el.textContent = k
+    ? `Key saved on this device (…${k.slice(-4)}). Test it to be sure it works.`
+    : 'No key saved — “Estimate with AI” will tell you to come back here.';
+}
+
+async function testAiKey() {
+  if (!(state.ai.key || '').trim()) { renderAiStatus('Paste a key and tap Save first.'); return; }
+  renderAiStatus('Testing…');
+  $('#aiTest').disabled = true;
+  try {
+    const est = await aiRequest('plain boiled white rice', { timeout: 30000 });
+    renderAiStatus(`Working. Test estimate for boiled rice: ${r0(est.values.kcal)} kcal/100 g `
+      + `(a sane answer is roughly 120–140). Model: ${est.model}`);
+  } catch (err) {
+    renderAiStatus(aiErrorText(err));
+  } finally {
+    $('#aiTest').disabled = false;
+  }
 }
 
 function checkTargetMath() {
@@ -1041,10 +1376,13 @@ function persistTargets() {
 }
 
 function exportBackup() {
+  /* The API key is deliberately left out — a backup file often gets emailed
+     or synced, and a leaked key is someone else spending your credit. */
   const payload = {
-    app: 'macros', version: 2, exported: new Date().toISOString(),
+    app: 'macros', version: 3, exported: new Date().toISOString(),
     targets: state.targets, foods: state.custom, entries: state.entries,
     water: state.water, names: state.names,
+    ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -1073,8 +1411,10 @@ function importBackup(file) {
       state.water   = byId(state.water, d.water);
       state.names   = Object.assign({}, state.names, d.names || {});
       if (d.targets) state.targets = Object.assign({}, DEFAULT_TARGETS, d.targets);
+      /* Model preference travels; the key never does, so keep the local one. */
+      if (d.ai && d.ai.model) state.ai.model = d.ai.model;
 
-      saveFoods(); saveEntries(); saveWater(); saveNames(); saveTargets();
+      saveFoods(); saveEntries(); saveWater(); saveNames(); saveTargets(); saveAi();
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {
@@ -1105,6 +1445,8 @@ function closeSheets() {
   $('#portionSheet').classList.add('hidden');
   $('#foodSheet').classList.add('hidden');
   $('#scanSheet').classList.add('hidden');
+  $('#nfSheet').classList.add('hidden');
+  $('#aiSheet').classList.add('hidden');
   document.body.style.overflow = '';
 }
 
@@ -1175,6 +1517,18 @@ function init() {
   si.onkeydown = e => { if (e.key === 'Enter') si.blur(); };
   $('#searchClear').onclick = () => { si.value = ''; runSearch(''); si.focus(); };
   $('#createFromSearch').onclick = () => openFoodEditor(null, si.value.trim());
+  $('#aiFromSearch').onclick = () => openAiDescribe({ code: null, term: si.value.trim() });
+
+  /* not-found choice + AI describe */
+  $('#nfAi').onclick = () => openAiDescribe({});
+  $('#nfManual').onclick = () => openFoodEditor(null, aiCtx.term || '',
+    { forceId: aiCtx.code ? 'off:' + aiCtx.code : null });
+  $('#nfCancel').onclick = closeSheets;
+  $('#aiGo').onclick = runAiEstimate;
+  $('#aiDesc').onkeydown = e => { if (e.key === 'Enter') runAiEstimate(); };
+  $('#aiManualInstead').onclick = () => openFoodEditor(null, $('#aiDesc').value.trim() || aiCtx.term || '',
+    { forceId: aiCtx.code ? 'off:' + aiCtx.code : null });
+  $('#aiCancel').onclick = closeSheets;
 
   /* scanner */
   $('#scanBtn').onclick = openScanner;
@@ -1219,6 +1573,21 @@ function init() {
   ['#tKcal', '#tP', '#tC', '#tF'].forEach(s => $(s).oninput = checkTargetMath);
   $('#saveTargets').onclick = persistTargets;
   $('#resetTargets').onclick = () => { state.targets = Object.assign({}, DEFAULT_TARGETS); saveTargets(); renderSettings(); renderSummary(); renderWater(); toast('Targets reset'); };
+  $('#aiSaveKey').onclick = () => {
+    state.ai.key = $('#aiKey').value.trim();
+    state.ai.model = $('#aiModel').value.trim() || AI_DEFAULT_MODEL;
+    $('#aiModel').value = state.ai.model;
+    saveAi();
+    renderAiStatus(state.ai.key ? 'Saved. Tap “Test connection” to confirm it works.' : 'Key cleared.');
+  };
+  $('#aiTest').onclick = testAiKey;
+  $('#aiClearKey').onclick = () => {
+    if (!confirm('Remove the API key from this device?')) return;
+    state.ai.key = '';
+    saveAi();
+    $('#aiKey').value = '';
+    renderAiStatus('Key removed from this device.');
+  };
   $('#exportBtn').onclick = exportBackup;
   $('#importBtn').onclick = () => $('#importFile').click();
   $('#importFile').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };

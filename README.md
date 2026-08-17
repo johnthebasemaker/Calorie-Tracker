@@ -67,6 +67,35 @@ Open Food Facts for the English fields first (`product_name_en`, then
 and offers **Rename** — the name you type is stored against that barcode, so
 every future scan of that product uses your name.
 
+**AI estimation.** When a barcode or a text search finds nothing, you get two
+options side by side: **Enter it manually** or **✦ Estimate with AI**. The AI path
+asks you to describe the food first — a barcode number on its own is not enough
+context to estimate from, so "Almarai chocolate milk 200 ml" beats a bare number.
+
+Nothing is saved until you approve it. The estimate lands on a **Check the
+estimate** screen with every value in an editable field under an "AI estimated —
+please check before saving" banner, showing the model's own confidence. Change
+whatever looks wrong, then **Confirm & Save** writes it to your library keyed to
+the barcode — or to the food name when there's no barcode, so re-estimating the
+same thing updates it instead of making a duplicate. AI-sourced foods carry an
+**AI** tag in the Foods tab so you always know which numbers were estimated.
+
+Set it up in **Settings → AI estimation**: paste an OpenRouter key and tap **Test
+connection**, which runs one real estimate on boiled rice and tells you whether
+the answer is sane. The default model is `openai/gpt-oss-20b:free`; any OpenRouter
+model id works.
+
+Your key lives in this browser's localStorage and nowhere else. It is not in the
+repo, and it is deliberately **excluded from backup exports** — a backup file
+tends to get emailed or synced around, and a leaked key is someone else spending
+your credit. The model name does travel in the backup; the key never does.
+
+No proxy is needed. OpenRouter returns `access-control-allow-origin: *`, so the
+browser calls it directly from the Pages origin. (For reference, Anthropic also
+works browser-direct via its `anthropic-dangerous-direct-browser-access` header,
+and OpenAI echoes the requesting origin — but Gemini's endpoint rejected the
+preflight, so it would need a proxy.)
+
 **Water.** A card under the day's macros: `+250 ml`, `+500 ml`, `+1 L` for the
 usual glass and bottle sizes, plus a field for anything else. Target defaults to
 3500 ml and is editable in Settings. Each add appears as a chip — tap it to
@@ -105,7 +134,9 @@ iOS clears website data for sites you haven't opened in a while. Adding the app
 to your Home Screen makes that much less likely, but it is not a guarantee.
 
 Settings → **Export backup** writes a `.json` file to Files. Do it every few
-weeks. **Import backup** merges it back in on any device.
+weeks. **Import backup** merges it back in on any device. The backup carries your
+food library, log, water, barcode renames and targets — but not your API key, so
+you'll paste that in again on a new device.
 
 ---
 
@@ -116,7 +147,7 @@ weeks. **Import backup** merges it back in on any device.
 | `index.html` | All markup — four tabs and two bottom sheets |
 | `styles.css` | Mobile-first styling, automatic light/dark |
 | `foods.js` | The seeded food database + its micronutrient table |
-| `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning |
+| `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning, AI |
 | `vendor/` | html5-qrcode, committed so scanning works offline |
 | `sw.js` | Service worker; caches the app shell for offline use |
 | `manifest.webmanifest` | PWA metadata for Add to Home Screen |

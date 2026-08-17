@@ -135,6 +135,9 @@
       <button class="wide ghost hidden" id="offRetry">Retry packaged search</button>
 
       <button class="wide ghost" id="createFromSearch">+ Add “<span id="createTerm"></span>” manually</button>
+      <button class="wide ghost ai" id="aiFromSearch">
+        <span class="sparkle" aria-hidden="true">✦</span> Estimate “<span id="aiTerm"></span>” with AI
+      </button>
     </div>
   </section>
 
@@ -161,6 +164,21 @@
       <p class="hint" id="macroCheck"></p>
       <button class="wide" id="saveTargets">Save targets</button>
       <button class="wide ghost" id="resetTargets">Reset to 2900 / 130 / 390 / 90 / 3500</button>
+    </div>
+
+    <h2 class="sect">AI estimation</h2>
+    <div class="card form">
+      <p class="hint">Used only when a food isn’t in Open Food Facts or your library. Your key is stored
+        in this browser alone — it is never committed to the repo and never sent anywhere except OpenRouter.
+        Get one free at <b>openrouter.ai/keys</b>.</p>
+      <label class="field"><span>OpenRouter key</span>
+        <input type="password" id="aiKey" placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Model</span>
+        <input type="text" id="aiModel" autocomplete="off" spellcheck="false"></label>
+      <p class="hint" id="aiStatus"></p>
+      <button class="wide" id="aiSaveKey">Save</button>
+      <button class="wide ghost" id="aiTest">Test connection</button>
+      <button class="wide ghost" id="aiClearKey">Remove key</button>
     </div>
 
     <h2 class="sect">Backup</h2>
@@ -243,7 +261,13 @@
 <div class="sheet hidden" id="foodSheet" role="dialog" aria-modal="true">
   <div class="grab"></div>
   <h3 id="fsTitle">New food</h3>
-  <p class="hint">Enter values <b>per 100 g</b> (or per 100 ml for drinks). Check the packet, or use a close match.</p>
+
+  <div class="aibanner hidden" id="fsAiBanner">
+    <b>✦ AI estimated — please check before saving</b>
+    <span id="fsAiMeta"></span>
+  </div>
+
+  <p class="hint" id="fsIntro">Enter values <b>per 100 g</b> (or per 100 ml for drinks). Check the packet, or use a close match.</p>
 
   <div class="form">
     <label class="field"><span>Name</span><input type="text" id="fName" autocapitalize="words"></label>
@@ -251,7 +275,8 @@
     <label class="field"><span>Protein g / 100 g</span><input type="number" inputmode="decimal" id="fP"></label>
     <label class="field"><span>Carbs g / 100 g</span><input type="number" inputmode="decimal" id="fC"></label>
     <label class="field"><span>Fat g / 100 g</span><input type="number" inputmode="decimal" id="fF"></label>
-    <label class="field"><span>Typical serving (g)<small>optional</small></span><input type="number" inputmode="decimal" id="fServe" placeholder="e.g. 150"></label>
+    <label class="field"><span>Serving name<small>optional, e.g. “1 wrap”</small></span><input type="text" id="fServeLabel" placeholder="1 serving"></label>
+    <label class="field"><span>Serving weight (g)<small>optional</small></span><input type="number" inputmode="decimal" id="fServe" placeholder="e.g. 150"></label>
     <p class="hint" id="fsCheck"></p>
   </div>
 
@@ -293,6 +318,44 @@
   <div class="sheetbtns">
     <button class="wide ghost" id="scanManual">Enter the number instead</button>
     <button class="wide ghost" id="scanCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ================= NOT FOUND: manual or AI ================= -->
+<div class="sheet hidden" id="nfSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <h3>Not found</h3>
+  <p class="hint" id="nfBody">That barcode isn’t in Open Food Facts.</p>
+  <div class="sheetbtns">
+    <button class="wide ai" id="nfAi"><span class="sparkle" aria-hidden="true">✦</span> Estimate with AI</button>
+    <button class="wide ghost" id="nfManual">Enter it manually</button>
+    <button class="wide ghost" id="nfCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ================= AI: describe the food ================= -->
+<div class="sheet hidden" id="aiSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <h3>Describe the food</h3>
+  <p class="hint">A barcode number alone isn’t enough to estimate from. Include the brand and size if you
+    know them — “Almarai chocolate milk 200 ml” beats “chocolate milk”.</p>
+
+  <div class="form">
+    <label class="field"><span>Description</span>
+      <input type="text" id="aiDesc" autocapitalize="sentences" placeholder="e.g. chicken shawarma wrap"></label>
+  </div>
+  <p class="hint" id="aiSheetNote"></p>
+
+  <div class="ailoading hidden" id="aiLoading">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="aiLoadingMsg">Estimating…</span>
+  </div>
+  <div class="scanerror hidden" id="aiError"></div>
+
+  <div class="sheetbtns">
+    <button class="wide" id="aiGo">Estimate</button>
+    <button class="wide ghost" id="aiManualInstead">Enter it manually instead</button>
+    <button class="wide ghost" id="aiCancel">Cancel</button>
   </div>
 </div>
 
