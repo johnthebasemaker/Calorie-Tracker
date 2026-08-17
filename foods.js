@@ -136,8 +136,151 @@ const SEED_FOODS = [
   { n: 'Honey',                   g: 'Protein & Basics', kcal: 304, p: 0.3,  c: 82,  f: 0,    a: 'asal sidr honey', u: [{ l: '1 tbsp', g: 21 }] },
 ];
 
-/* Give every seed food a stable id derived from its name. */
+/* ------------------------------------------------------------------
+   Micronutrients per 100 g, keyed by the food's slug.
+     fb = fibre (g)     sg = sugar (g)        na = sodium (mg)
+     ch = cholesterol (mg)  ca = calcium (mg)  fe = iron (mg)
+   Fibre, sugar and sodium are filled in for everything. Cholesterol,
+   calcium and iron are only listed where the value is well established
+   (dairy, eggs, meat, nuts, pulses) — elsewhere they stay unknown and
+   the app shows "—" rather than inventing a number.
+   Sodium in cooked dishes depends entirely on how much salt goes in;
+   treat those as ballpark.
+   ------------------------------------------------------------------ */
+const SEED_MICROS = {
+  /* South Indian — tiffin */
+  'idli':            { fb: 1.0,  sg: 0.2,  na: 230 },
+  'rava-idli':       { fb: 1.2,  sg: 0.8,  na: 280 },
+  'dosa-plain':      { fb: 1.2,  sg: 0.4,  na: 210 },
+  'masala-dosa':     { fb: 2.0,  sg: 1.0,  na: 280 },
+  'ghee-roast-dosa': { fb: 1.2,  sg: 0.4,  na: 220, ch: 22 },
+  'set-dosa-uttapam':{ fb: 1.5,  sg: 0.8,  na: 250 },
+  'medu-vada':       { fb: 3.5,  sg: 0.6,  na: 380, fe: 1.8 },
+  'upma':            { fb: 1.8,  sg: 1.0,  na: 380 },
+  'ven-pongal':      { fb: 1.5,  sg: 0.3,  na: 300, ch: 14 },
+  'idiyappam':       { fb: 1.0,  sg: 0.1,  na: 90 },
+  'appam':           { fb: 0.8,  sg: 3.5,  na: 130 },
+  'puttu':           { fb: 1.5,  sg: 0.3,  na: 70 },
+  'pesarattu':       { fb: 4.0,  sg: 0.8,  na: 260, fe: 2.0 },
+  'poha':            { fb: 1.2,  sg: 1.5,  na: 300, fe: 2.7 },
+
+  /* South Indian — rice & breads */
+  'white-rice-cooked':{ fb: 0.4, sg: 0.1,  na: 1,   ch: 0 },
+  'brown-rice-cooked':{ fb: 1.8, sg: 0.4,  na: 4,   ch: 0, fe: 0.6 },
+  'ghee-rice':       { fb: 0.8,  sg: 0.5,  na: 320, ch: 18 },
+  'lemon-rice':      { fb: 1.0,  sg: 0.4,  na: 400 },
+  'tamarind-rice':   { fb: 1.5,  sg: 2.5,  na: 450 },
+  'curd-rice':       { fb: 0.4,  sg: 1.8,  na: 280, ch: 6,  ca: 60 },
+  'coconut-rice':    { fb: 1.8,  sg: 1.2,  na: 320 },
+  'chapati-roti':    { fb: 6.5,  sg: 1.2,  na: 320, fe: 2.5, ca: 40 },
+  'kerala-parotta':  { fb: 2.0,  sg: 1.5,  na: 400 },
+  'poori':           { fb: 3.5,  sg: 0.8,  na: 250, fe: 1.8 },
+
+  /* South Indian — curries, dals, sides */
+  'sambar':          { fb: 2.5,  sg: 1.5,  na: 450, fe: 1.0 },
+  'rasam':           { fb: 0.8,  sg: 1.0,  na: 400 },
+  'toor-dal-cooked': { fb: 4.5,  sg: 1.0,  na: 300, fe: 1.5, ca: 25 },
+  'moong-dal-cooked':{ fb: 4.0,  sg: 0.8,  na: 280, fe: 1.4, ca: 22 },
+  'coconut-chutney': { fb: 4.5,  sg: 2.0,  na: 300 },
+  'tomato-chutney':  { fb: 2.0,  sg: 4.0,  na: 380 },
+  'idli-podi-oil':   { fb: 12.0, sg: 2.0,  na: 900, fe: 4.0 },
+  'avial':           { fb: 3.0,  sg: 2.5,  na: 280 },
+  'thoran-poriyal':  { fb: 3.5,  sg: 2.0,  na: 250 },
+  'kootu':           { fb: 3.5,  sg: 1.8,  na: 280, fe: 1.2 },
+  'potato-masala':   { fb: 2.0,  sg: 1.5,  na: 320 },
+  'kerala-veg-stew': { fb: 1.8,  sg: 2.0,  na: 260 },
+  'curd-plain-yogurt':{ fb: 0,   sg: 4.7,  na: 46,  ch: 13, ca: 120 },
+  'buttermilk-moru': { fb: 0,    sg: 4.0,  na: 120, ch: 5,  ca: 90 },
+  'pickle-mango-lime':{ fb: 2.0, sg: 6.0,  na: 2400 },
+  'papad-fried':     { fb: 8.0,  sg: 1.0,  na: 1600, fe: 3.0 },
+  'ghee':            { fb: 0,    sg: 0,    na: 2,   ch: 256 },
+  'coconut-oil':     { fb: 0,    sg: 0,    na: 0,   ch: 0 },
+  'olive-oil':       { fb: 0,    sg: 0,    na: 2,   ch: 0 },
+  'sunflower-oil':   { fb: 0,    sg: 0,    na: 0,   ch: 0 },
+
+  /* Indian non-veg */
+  'chicken-curry':   { fb: 1.0,  sg: 1.5,  na: 420, ch: 55 },
+  'chicken-chettinad':{ fb: 1.5, sg: 1.5,  na: 450, ch: 62 },
+  'butter-chicken':  { fb: 1.0,  sg: 3.5,  na: 420, ch: 60, ca: 55 },
+  'chicken-65':      { fb: 1.0,  sg: 1.0,  na: 620, ch: 70 },
+  'tandoori-grilled-chicken':{ fb: 0.3, sg: 0.8, na: 480, ch: 90 },
+  'chicken-breast-plain-cooked':{ fb: 0, sg: 0,  na: 74,  ch: 85, fe: 1.0 },
+  'fish-curry':      { fb: 1.0,  sg: 1.2,  na: 400, ch: 40 },
+  'fish-fry-shallow':{ fb: 0.5,  sg: 0.3,  na: 450, ch: 55 },
+  'mutton-curry':    { fb: 1.0,  sg: 1.2,  na: 400, ch: 75, fe: 2.0 },
+  'prawn-masala':    { fb: 0.8,  sg: 1.0,  na: 480, ch: 130 },
+  'egg-curry':       { fb: 0.8,  sg: 1.5,  na: 380, ch: 210, ca: 45 },
+  'boiled-egg':      { fb: 0,    sg: 1.1,  na: 124, ch: 373, ca: 50, fe: 1.2 },
+  'omelette-2-eggs': { fb: 0.2,  sg: 0.9,  na: 300, ch: 320, ca: 45, fe: 1.3 },
+  'egg-white-cooked':{ fb: 0,    sg: 0.7,  na: 166, ch: 0,  ca: 7 },
+  'chicken-biryani': { fb: 1.2,  sg: 1.5,  na: 480, ch: 35 },
+  'mutton-biryani':  { fb: 1.2,  sg: 1.5,  na: 480, ch: 45 },
+  'chicken-fried-rice':{ fb: 1.0, sg: 1.2, na: 520, ch: 30 },
+  'paneer-butter-masala':{ fb: 1.5, sg: 4.0, na: 450, ch: 45, ca: 200 },
+
+  /* Saudi / Gulf mains */
+  'chicken-kabsa':   { fb: 1.2,  sg: 2.0,  na: 450, ch: 35 },
+  'lamb-kabsa':      { fb: 1.2,  sg: 2.0,  na: 460, ch: 42 },
+  'chicken-mandi':   { fb: 1.0,  sg: 1.2,  na: 400, ch: 38 },
+  'lamb-mandi':      { fb: 1.0,  sg: 1.2,  na: 420, ch: 45 },
+  'chicken-madhbi':  { fb: 1.0,  sg: 1.5,  na: 430, ch: 40 },
+  'chicken-shawarma-meat-only':{ fb: 0.5, sg: 1.0, na: 620, ch: 65 },
+  'chicken-shawarma-sandwich': { fb: 1.5, sg: 1.5, na: 560, ch: 32 },
+  'beef-shawarma-sandwich':    { fb: 1.5, sg: 1.5, na: 600, ch: 38 },
+  'broast-chicken-fried':{ fb: 0.8, sg: 0.5, na: 700, ch: 75 },
+  'shish-tawook':    { fb: 0.3,  sg: 0.8,  na: 520, ch: 78 },
+  'kofta-kebab-grilled':{ fb: 0.5, sg: 0.8, na: 560, ch: 65, fe: 2.2 },
+  'saleeg':          { fb: 0.6,  sg: 2.0,  na: 350, ch: 18, ca: 70 },
+  'jareesh':         { fb: 2.5,  sg: 1.5,  na: 340, ch: 12 },
+  'maqluba':         { fb: 2.0,  sg: 2.0,  na: 420, ch: 25 },
+  'grilled-fish-gulf-style':{ fb: 0, sg: 0.3, na: 320, ch: 55 },
+
+  /* Gulf sides, breads, snacks, drinks */
+  'khubz-arabic-bread':{ fb: 2.5, sg: 2.0, na: 520, fe: 2.4 },
+  'tamees-tandoor-bread':{ fb: 2.8, sg: 2.5, na: 500, fe: 2.5 },
+  'hummus':          { fb: 6.0,  sg: 0.5,  na: 380, ca: 38, fe: 2.4 },
+  'mutabbal-baba-ganoush':{ fb: 4.0, sg: 3.0, na: 350 },
+  'foul-medames':    { fb: 5.5,  sg: 0.8,  na: 400, fe: 2.0, ca: 40 },
+  'falafel':         { fb: 5.0,  sg: 1.5,  na: 590, fe: 3.4, ca: 54 },
+  'samboosa-fried':  { fb: 2.5,  sg: 1.5,  na: 520 },
+  'tabbouleh':       { fb: 3.0,  sg: 2.0,  na: 320, fe: 1.5 },
+  'fattoush':        { fb: 2.5,  sg: 3.0,  na: 300 },
+  'arabic-salad':    { fb: 1.5,  sg: 3.0,  na: 180 },
+  'labneh':          { fb: 0,    sg: 4.0,  na: 300, ch: 35, ca: 180 },
+  'tahini':          { fb: 9.3,  sg: 0.5,  na: 115, ca: 426, fe: 8.9 },
+  'dates':           { fb: 8.0,  sg: 63.0, na: 2,   ca: 39, fe: 1.0 },
+  'laban-drinking-yogurt':{ fb: 0, sg: 4.5, na: 60, ch: 6,  ca: 115 },
+  'karak-chai':      { fb: 0,    sg: 9.0,  na: 25,  ch: 8,  ca: 55 },
+  'arabic-coffee-gahwa':{ fb: 0, sg: 0,    na: 3,   ch: 0 },
+  'kunafa':          { fb: 1.5,  sg: 30.0, na: 220, ch: 40, ca: 100 },
+  'basbousa':        { fb: 1.5,  sg: 35.0, na: 180, ch: 25, ca: 60 },
+  'vimto-soft-drink':{ fb: 0,    sg: 10.5, na: 10,  ch: 0 },
+
+  /* Protein, dairy, nuts & basics */
+  'whey-protein-powder':{ fb: 1.0, sg: 5.0, na: 300, ch: 30, ca: 500 },
+  'full-cream-milk': { fb: 0,    sg: 4.8,  na: 43,  ch: 10, ca: 113 },
+  'low-fat-milk':    { fb: 0,    sg: 5.0,  na: 44,  ch: 5,  ca: 125 },
+  'greek-yogurt-plain':{ fb: 0,  sg: 4.0,  na: 36,  ch: 13, ca: 100 },
+  'paneer':          { fb: 0,    sg: 3.5,  na: 22,  ch: 60, ca: 480 },
+  'cheese-slice':    { fb: 0,    sg: 5.0,  na: 1300, ch: 70, ca: 500 },
+  'peanut-butter':   { fb: 6.0,  sg: 9.0,  na: 430, ca: 43, fe: 1.9 },
+  'peanuts-roasted': { fb: 8.5,  sg: 4.2,  na: 6,   ca: 92, fe: 2.3 },
+  'almonds':         { fb: 12.5, sg: 4.4,  na: 1,   ca: 269, fe: 3.7 },
+  'cashews':         { fb: 3.3,  sg: 5.9,  na: 12,  ca: 37, fe: 6.7 },
+  'oats-dry':        { fb: 10.6, sg: 1.0,  na: 2,   ca: 54, fe: 4.7 },
+  'chickpeas-cooked':{ fb: 7.6,  sg: 4.8,  na: 240, ca: 49, fe: 2.9 },
+  'tuna-canned-in-water':{ fb: 0, sg: 0,   na: 320, ch: 30, ca: 11, fe: 1.0 },
+  'banana':          { fb: 2.6,  sg: 12.2, na: 1,   ca: 5,  fe: 0.3 },
+  'apple':           { fb: 2.4,  sg: 10.4, na: 1,   ca: 6,  fe: 0.1 },
+  'sugar':           { fb: 0,    sg: 100,  na: 0,   ch: 0 },
+  'honey':           { fb: 0.2,  sg: 82.0, na: 4,   ch: 0 },
+};
+
+/* Give every seed food a stable id derived from its name, and fold in
+   whatever micronutrients we have for it. */
 SEED_FOODS.forEach(f => {
-  f.id = 'seed:' + f.n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const slug = f.n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  f.id = 'seed:' + slug;
   f.src = 'seed';
+  Object.assign(f, SEED_MICROS[slug] || {});
 });

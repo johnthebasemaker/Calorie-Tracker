@@ -2,8 +2,8 @@
 
 **Live: https://johnthebasemaker.github.io/Calorie-Tracker/**
 
-A single-page, offline food log. No backend, no login, no account. Everything is
-stored in your browser's `localStorage` on the device you use it on.
+A single-page, offline food and water log. No backend, no login, no account.
+Everything is stored in your browser's `localStorage` on the device you use it on.
 
 Targets ship at **2900 kcal / 130 g protein / 390 g carbs / 90 g fat** — change them
 in Settings any time.
@@ -50,9 +50,37 @@ per-100 g values once, and it's in your library forever.
 Local-first rather than strictly OFF-first: for idli or kabsa the local hit is
 both faster and more accurate, and you still see every packaged match below it.
 
-**Barcodes.** Type or paste the number from the packet (8–14 digits) into the
-same search box. That hits OFF's product endpoint directly, which is far more
-reliable than its free-text search. Handy for Almarai, Nadec, Al Baik, whey tubs.
+**Barcodes.** Tap **Scan** next to the search box to open the camera and point it
+at the barcode; it looks the product up automatically and drops you straight on
+grams entry. You can also type or paste the number (8–14 digits) into the search
+box, or into the scanner's own field. Typed lookups hit OFF's product endpoint
+directly, which is far more reliable than its free-text search.
+
+If the camera is blocked or unavailable the scanner says why — including the iOS
+path to re-enable it — and puts the manual number field right there. The scanner
+library is vendored in `vendor/`, so scanning keeps working offline and doesn't
+depend on a CDN. It only loads the first time you tap Scan.
+
+**Arabic product names.** Gulf barcodes often come back Arabic-only. The app asks
+Open Food Facts for the English fields first (`product_name_en`, then
+`generic_name_en`). If there's still no English name, the portion sheet says so
+and offers **Rename** — the name you type is stored against that barcode, so
+every future scan of that product uses your name.
+
+**Water.** A card under the day's macros: `+250 ml`, `+500 ml`, `+1 L` for the
+usual glass and bottle sizes, plus a field for anything else. Target defaults to
+3500 ml and is editable in Settings. Each add appears as a chip — tap it to
+remove. Resets daily and follows the same date navigation as food.
+
+**The other nutrients.** Fibre, sugar, sodium, cholesterol, calcium and iron are
+tracked alongside the four main numbers, kept out of the way behind an expander:
+**Full breakdown** under the daily totals, and **More details** on any individual
+food. Fibre, sugar and sodium are filled in for all 113 seeded foods; cholesterol,
+calcium and iron only where the value is well established.
+
+A missing value shows as **—**, never as 0 — so an unknown sodium and a genuine
+zero are never confused. In the daily breakdown, a count like `(3/6)` means only 3
+of the 6 foods you logged reported that nutrient, so the true total is higher.
 
 **Portions.** Every food has grams plus household portions — *1 idli · 45 g*,
 *1 plate · 400 g*, *3 dates · 24 g*. Everything recalculates live as you change
@@ -87,8 +115,9 @@ weeks. **Import backup** merges it back in on any device.
 |---|---|
 | `index.html` | All markup — four tabs and two bottom sheets |
 | `styles.css` | Mobile-first styling, automatic light/dark |
-| `foods.js` | The seeded food database (edit here to add foods in bulk) |
-| `app.js` | All logic — storage, search, OFF lookups, totals |
+| `foods.js` | The seeded food database + its micronutrient table |
+| `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning |
+| `vendor/` | html5-qrcode, committed so scanning works offline |
 | `sw.js` | Service worker; caches the app shell for offline use |
 | `manifest.webmanifest` | PWA metadata for Add to Home Screen |
 | `icons/` | App icons |

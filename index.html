@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Macros</title>
-<meta name="description" content="Offline calorie and macro tracker for South Indian and Gulf food.">
+<meta name="description" content="Offline calorie, macro and water tracker for South Indian and Gulf food.">
 
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101215" media="(prefers-color-scheme: dark)">
@@ -63,6 +63,35 @@
           <div class="track"><i id="barF"></i></div>
         </div>
       </div>
+
+      <button class="expand" id="toggleTotals" aria-expanded="false">
+        <span>Full breakdown</span><i class="caret">&#9662;</i>
+      </button>
+      <div class="microwrap hidden" id="totalsMicros">
+        <div class="microgrid" id="totalsMicroGrid"></div>
+        <p class="micronote" id="totalsMicroNote"></p>
+      </div>
+    </div>
+
+    <h2 class="sect">Water <small>tap a size to log</small></h2>
+    <div class="card water">
+      <div class="bar" data-macro="w">
+        <div class="barhead"><span id="waterSum">0 ml</span><span id="waterTargetLbl">of 3500 ml</span></div>
+        <div class="track"><i id="barW"></i></div>
+      </div>
+
+      <div class="chips waterquick">
+        <button class="chip" data-ml="250">+250 ml</button>
+        <button class="chip" data-ml="500">+500 ml</button>
+        <button class="chip" data-ml="1000">+1 L</button>
+      </div>
+
+      <div class="waterrow">
+        <input type="number" inputmode="numeric" id="waterInput" placeholder="Other amount (ml)" min="1" step="10">
+        <button id="waterAdd">Add</button>
+      </div>
+
+      <div class="chips waterlog" id="waterLog"></div>
     </div>
 
     <div id="quickWrap" class="quickwrap hidden">
@@ -78,10 +107,15 @@
 
   <!-- ============================= ADD ============================= -->
   <section class="view hidden" id="view-add">
-    <div class="searchbar">
-      <input type="search" id="searchInput" placeholder="Food name, or a barcode number"
-             autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
-      <button id="searchClear" class="clearbtn hidden" aria-label="Clear">&times;</button>
+    <div class="searchrow">
+      <div class="searchbar">
+        <input type="search" id="searchInput" placeholder="Food name, or a barcode number"
+               autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+        <button id="searchClear" class="clearbtn hidden" aria-label="Clear">&times;</button>
+      </div>
+      <button class="scanbtn" id="scanBtn" aria-label="Scan barcode">
+        <span class="scanic" aria-hidden="true">|||</span><span>Scan</span>
+      </button>
     </div>
 
     <div id="addIdle">
@@ -123,9 +157,10 @@
       <label class="field"><span>Protein (g)</span><input type="number" inputmode="numeric" id="tP"></label>
       <label class="field"><span>Carbs (g)</span><input type="number" inputmode="numeric" id="tC"></label>
       <label class="field"><span>Fat (g)</span><input type="number" inputmode="numeric" id="tF"></label>
+      <label class="field"><span>Water (ml)</span><input type="number" inputmode="numeric" id="tW"></label>
       <p class="hint" id="macroCheck"></p>
       <button class="wide" id="saveTargets">Save targets</button>
-      <button class="wide ghost" id="resetTargets">Reset to 2900 / 130 / 390 / 90</button>
+      <button class="wide ghost" id="resetTargets">Reset to 2900 / 130 / 390 / 90 / 3500</button>
     </div>
 
     <h2 class="sect">Backup</h2>
@@ -158,7 +193,16 @@
 
 <div class="sheet hidden" id="portionSheet" role="dialog" aria-modal="true">
   <div class="grab"></div>
-  <h3 id="psName">Food</h3>
+
+  <div class="psnamerow">
+    <h3 id="psName">Food</h3>
+    <button class="renamebtn hidden" id="psRename">Rename</button>
+  </div>
+  <div class="renamerow hidden" id="psRenameRow">
+    <input type="text" id="psRenameInput" autocapitalize="words" placeholder="English name">
+    <button id="psRenameSave">Save</button>
+  </div>
+  <p class="arabicnote hidden" id="psArabicNote">No English name on file for this barcode. Rename it once and future scans will use your name.</p>
   <p class="psmeta" id="psMeta"></p>
 
   <div class="gramrow">
@@ -178,6 +222,14 @@
     <div><b id="pvP">0</b><span>protein</span></div>
     <div><b id="pvC">0</b><span>carbs</span></div>
     <div><b id="pvF">0</b><span>fat</span></div>
+  </div>
+
+  <button class="expand" id="psMoreBtn" aria-expanded="false">
+    <span>More details</span><i class="caret">&#9662;</i>
+  </button>
+  <div class="microwrap hidden" id="psMicroWrap">
+    <div class="microgrid" id="psMicroGrid"></div>
+    <p class="micronote" id="psMicroNote"></p>
   </div>
 
   <div class="sheetbtns">
@@ -203,10 +255,44 @@
     <p class="hint" id="fsCheck"></p>
   </div>
 
+  <button class="expand" id="fsMoreBtn" aria-expanded="false">
+    <span>Fibre, sugar, sodium &amp; more</span><i class="caret">&#9662;</i>
+  </button>
+  <div class="form hidden" id="fsMicros">
+    <p class="hint">All optional — leave blank and the app shows “—” instead of pretending it's zero.</p>
+    <label class="field"><span>Fibre g / 100 g</span><input type="number" inputmode="decimal" id="fFb"></label>
+    <label class="field"><span>Sugar g / 100 g</span><input type="number" inputmode="decimal" id="fSg"></label>
+    <label class="field"><span>Sodium mg / 100 g</span><input type="number" inputmode="decimal" id="fNa"></label>
+    <label class="field"><span>Cholesterol mg / 100 g</span><input type="number" inputmode="decimal" id="fCh"></label>
+    <label class="field"><span>Calcium mg / 100 g</span><input type="number" inputmode="decimal" id="fCa"></label>
+    <label class="field"><span>Iron mg / 100 g</span><input type="number" inputmode="decimal" id="fFe"></label>
+  </div>
+
   <div class="sheetbtns">
     <button class="wide" id="fsSave">Save food</button>
     <button class="wide danger ghost hidden" id="fsDelete">Delete food</button>
     <button class="wide ghost" id="fsCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ======================= BARCODE SCANNER SHEET ======================= -->
+<div class="sheet hidden" id="scanSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <h3>Scan barcode</h3>
+  <p class="hint" id="scanHint">Hold the barcode on the packet inside the frame.</p>
+
+  <div id="reader" class="reader"></div>
+
+  <div class="scanerror hidden" id="scanError"></div>
+
+  <div class="manualrow hidden" id="scanManualRow">
+    <input type="number" inputmode="numeric" id="scanManualInput" placeholder="Barcode number">
+    <button id="scanManualGo">Look up</button>
+  </div>
+
+  <div class="sheetbtns">
+    <button class="wide ghost" id="scanManual">Enter the number instead</button>
+    <button class="wide ghost" id="scanCancel">Cancel</button>
   </div>
 </div>
 

@@ -1,12 +1,30 @@
 /* ------------------------------------------------------------------
-   Macros — offline calorie/macro tracker
+   Macros — offline calorie, macro and water tracker
    Single user, no backend. Everything lives in localStorage.
    ------------------------------------------------------------------ */
 'use strict';
 
-const KEY = { set: 'ct.settings.v1', foods: 'ct.foods.v1', log: 'ct.entries.v1' };
+const KEY = {
+  set:   'ct.settings.v1',
+  foods: 'ct.foods.v1',
+  log:   'ct.entries.v1',
+  water: 'ct.water.v1',
+  names: 'ct.names.v1',     // barcode -> the English name you gave it
+};
 
-const DEFAULT_TARGETS = { kcal: 2900, p: 130, c: 390, f: 90 };
+const DEFAULT_TARGETS = { kcal: 2900, p: 130, c: 390, f: 90, water: 3500 };
+
+/* Extra nutrients, in display order. Stored per 100 g on the food, and
+   snapshotted onto each log entry so history never shifts. A missing key
+   means "not known" and renders as "—" — never as zero. */
+const MICROS = [
+  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1 },
+  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1 },
+  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0 },
+  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0 },
+  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0 },
+  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1 },
+];
 
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -16,7 +34,9 @@ const $$ = s => Array.from(document.querySelectorAll(s));
 const state = {
   targets: DEFAULT_TARGETS,
   custom:  [],          // user-created foods + overrides of seed foods (same id)
-  entries: [],          // log rows
+  entries: [],          // food log rows
+  water:   [],          // water log rows
+  names:   {},          // barcode -> English name
   date:    todayStr(),
 };
 
@@ -33,9 +53,13 @@ function load() {
   state.targets = Object.assign({}, DEFAULT_TARGETS, readJSON(KEY.set, {}));
   state.custom  = readJSON(KEY.foods, []);
   state.entries = readJSON(KEY.log, []);
+  state.water   = readJSON(KEY.water, []);
+  state.names   = readJSON(KEY.names, {});
 }
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
+const saveWater   = () => writeJSON(KEY.water, state.water);
+const saveNames   = () => writeJSON(KEY.names, state.names);
 const saveTargets = () => writeJSON(KEY.set, state.targets);
 
 /* ------------------------------- helpers ------------------------------- */
@@ -60,6 +84,14 @@ const r0   = n => Math.round(n);
 const r1   = n => Math.round(n * 10) / 10;
 const gfmt = n => (n >= 100 ? r0(n) : r1(n));
 const clampPct = n => Math.max(0, Math.min(100, n));
+
+/* Blank stays blank: an empty field means unknown, not zero. */
+const numOrUndef = v => {
+  if (v === '' || v == null) return undefined;
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+};
+const microFmt = (v, m) => (typeof v === 'number' ? (m.dp ? r1(v) : r0(v)).toLocaleString() : '—');
 
 /* Merge seed foods with user foods. A user record with a seed id overrides it. */
 function allFoods() {
@@ -126,13 +158,57 @@ function totalsFor(d) {
   }, { kcal: 0, p: 0, c: 0, f: 0 });
 }
 
+/* Micro totals, plus how many of the day's foods actually reported each
+   one — a sodium total from 2 of 7 foods should not look authoritative. */
+function microTotalsFor(d) {
+  const rows = entriesFor(d);
+  const out = {};
+  MICROS.forEach(m => {
+    let sum = 0, have = 0;
+    rows.forEach(e => {
+      const v = e.m && e.m[m.k];
+      if (typeof v === 'number') { sum += v * e.g / 100; have++; }
+    });
+    out[m.k] = { sum, have, total: rows.length };
+  });
+  return out;
+}
+
+/* ------------------------------- water ------------------------------- */
+
+const waterFor  = d => state.water.filter(w => w.d === d).sort((a, b) => a.ts - b.ts);
+const waterTotal = d => waterFor(d).reduce((s, w) => s + w.ml, 0);
+
+function addWater(ml) {
+  const v = Math.round(Number(ml));
+  if (!(v > 0)) { toast('Enter an amount in ml'); return null; }
+  if (v > 5000) { toast('That looks too big for one go — add it in smaller amounts'); return null; }
+  const rec = { id: uid(), d: state.date, ml: v, ts: Date.now() };
+  state.water.push(rec);
+  saveWater();
+  renderWater();
+  return rec;
+}
+function removeWater(id) {
+  const rec = state.water.find(w => w.id === id);
+  state.water = state.water.filter(w => w.id !== id);
+  saveWater();
+  renderWater();
+  if (rec) toast(`${rec.ml} ml removed`, 'Undo', () => {
+    state.water.push(rec); saveWater(); renderWater();
+  });
+}
+
 /* =====================================================================
    RENDER
    ===================================================================== */
 
+let totalsOpen = false, psMicroOpen = false;
+
 function renderAll() {
   renderDate();
   renderSummary();
+  renderWater();
   renderQuick();
   renderEntries();
 }
@@ -166,6 +242,62 @@ function renderSummary() {
     const bar = $('#bar' + id);
     bar.style.width = clampPct(tgt ? (val / tgt) * 100 : 0) + '%';
     bar.classList.toggle('over', tgt && val > tgt);
+  });
+
+  renderTotalsMicros();
+}
+
+function renderTotalsMicros() {
+  const totals = microTotalsFor(state.date);
+  const grid = $('#totalsMicroGrid');
+  grid.innerHTML = '';
+  let partial = false;
+
+  MICROS.forEach(m => {
+    const s = totals[m.k];
+    const known = s.have > 0;
+    const isPartial = known && s.have < s.total;
+    if (isPartial) partial = true;
+
+    const cell = document.createElement('div');
+    cell.innerHTML = `
+      <b class="${known ? '' : 'none'}">${known ? microFmt(s.sum, m) : '—'}${known ? ` <small>${m.unit}</small>` : ''}</b>
+      <span>${m.label}${isPartial ? ` (${s.have}/${s.total})` : ''}</span>`;
+    grid.appendChild(cell);
+  });
+
+  const note = $('#totalsMicroNote');
+  if (!entriesFor(state.date).length) {
+    note.textContent = 'Log some food to see the full breakdown.';
+  } else if (partial) {
+    note.textContent = 'A count like (3/6) means only 3 of the 6 foods logged reported that nutrient, '
+      + 'so the real total is higher. Fill gaps in the Foods tab.';
+  } else {
+    note.textContent = 'Every food logged today reported all six.';
+  }
+}
+
+function renderWater() {
+  const total = waterTotal(state.date), tgt = state.targets.water || 0;
+
+  $('#waterSum').textContent = `${total.toLocaleString()} ml`;
+  const left = tgt - total;
+  $('#waterTargetLbl').textContent = left > 0
+    ? `${left.toLocaleString()} ml to go`
+    : `target ${tgt.toLocaleString()} ml met`;
+
+  const bar = $('#barW');
+  bar.style.width = clampPct(tgt ? (total / tgt) * 100 : 0) + '%';
+
+  const log = $('#waterLog');
+  log.innerHTML = '';
+  waterFor(state.date).forEach(w => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.innerHTML = `<b>${w.ml} ml</b><i>&times;</i>`;
+    b.setAttribute('aria-label', `Remove ${w.ml} ml`);
+    b.onclick = () => removeWater(w.id);
+    log.appendChild(b);
   });
 }
 
@@ -223,9 +355,13 @@ function escapeHtml(s) {
 let lastAddedId = null;
 
 function addEntry(food, grams) {
+  const micro = {};
+  MICROS.forEach(m => { if (typeof food[m.k] === 'number') micro[m.k] = food[m.k]; });
+
   const e = {
     id: uid(), d: state.date, fid: food.id, n: food.n, g: Number(grams),
     k100: Number(food.kcal), p100: Number(food.p), c100: Number(food.c), f100: Number(food.f),
+    m: micro,
     ts: Date.now(),
   };
   state.entries.push(e);
@@ -256,12 +392,20 @@ function openPortion({ mode, food, entry, grams }) {
   /* Entry for a food that was later deleted — rebuild from the snapshot. */
   if (!ps.food && entry) {
     ps.food = { id: entry.fid, n: entry.n, kcal: entry.k100, p: entry.p100, c: entry.c100, f: entry.f100 };
+    Object.assign(ps.food, entry.m || {});
   }
   const f = ps.food;
 
   $('#psName').textContent = f.n;
   $('#psMeta').textContent =
     `Per 100 g: ${r0(f.kcal)} kcal · P ${gfmt(f.p)} · C ${gfmt(f.c)} · F ${gfmt(f.f)}`;
+
+  /* Renaming is only meaningful for barcode products, which is also the
+     only place Arabic-only names come from. */
+  const code = barcodeOf(f.id);
+  $('#psRename').classList.toggle('hidden', !code);
+  $('#psArabicNote').classList.toggle('hidden', !(code && hasArabic(f.n)));
+  hideRenameRow();
 
   const start = grams != null ? grams
     : entry ? entry.g
@@ -285,6 +429,7 @@ function openPortion({ mode, food, entry, grams }) {
 
   $('#psSave').textContent = mode === 'edit' ? 'Save changes' : 'Add to log';
   $('#psDelete').classList.toggle('hidden', mode !== 'edit');
+  setExpanded($('#psMoreBtn'), $('#psMicroWrap'), psMicroOpen);
   previewPortion();
   showSheet('#portionSheet');
 }
@@ -304,6 +449,26 @@ function previewPortion() {
     : 'Enter how many grams you ate';
 
   $$('#psUnits .chip').forEach(c => c.classList.toggle('on', +c.dataset.g === grams));
+
+  /* extra nutrients for this portion */
+  const grid = $('#psMicroGrid');
+  grid.innerHTML = '';
+  let unknown = 0;
+  MICROS.forEach(m => {
+    const per100 = f[m.k];
+    const known = typeof per100 === 'number';
+    if (!known) unknown++;
+    const cell = document.createElement('div');
+    cell.innerHTML = `
+      <b class="${known ? '' : 'none'}">${known ? microFmt(per100 * k, m) : '—'}${known ? ` <small>${m.unit}</small>` : ''}</b>
+      <span>${m.label}</span>`;
+    grid.appendChild(cell);
+  });
+  $('#psMicroNote').textContent = unknown === 0
+    ? `For ${r0(grams)} g.`
+    : unknown === MICROS.length
+      ? 'No extra nutrition on file for this food. Add it in the Foods tab and it sticks.'
+      : `For ${r0(grams)} g. “—” means the value isn’t on file — add it in the Foods tab.`;
 }
 
 function commitPortion() {
@@ -312,6 +477,14 @@ function commitPortion() {
 
   if (ps.mode === 'edit' && ps.entry) {
     ps.entry.g = grams;
+    /* Entries logged before this version have no micro snapshot. Adopt the
+       food's current values now that you're editing it anyway, so the day's
+       breakdown stops counting it as unknown. */
+    if (!ps.entry.m) {
+      const micro = {};
+      MICROS.forEach(m => { if (typeof ps.food[m.k] === 'number') micro[m.k] = ps.food[m.k]; });
+      ps.entry.m = micro;
+    }
     saveEntries();
     toast('Updated');
   } else {
@@ -334,6 +507,40 @@ function deleteEntry() {
   });
 }
 
+/* ---------------------- renaming a barcode product ---------------------- */
+
+/* Arabic block, Arabic Supplement, and the two presentation-forms ranges.
+   Built from a string so the source file stays plain ASCII. */
+const ARABIC_RE = new RegExp('[\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF\\uFE70-\\uFEFF]');
+const hasArabic = s => ARABIC_RE.test(String(s));
+const barcodeOf = id => (String(id).startsWith('off:') ? String(id).slice(4) : null);
+
+function showRenameRow() {
+  $('#psRenameRow').classList.remove('hidden');
+  $('#psRenameInput').value = ps.food.n;
+  $('#psRenameInput').focus();
+  $('#psRenameInput').select();
+}
+function hideRenameRow() { $('#psRenameRow').classList.add('hidden'); }
+
+function saveRename() {
+  const name = $('#psRenameInput').value.trim();
+  if (!name) { toast('Give it a name first'); return; }
+
+  const code = barcodeOf(ps.food.id);
+  if (code) { state.names[code] = name; saveNames(); }
+
+  ps.food.n = name;
+  const i = state.custom.findIndex(x => x.id === ps.food.id);
+  if (i >= 0) { state.custom[i].n = name; saveFoods(); }
+
+  $('#psName').textContent = name;
+  $('#psArabicNote').classList.add('hidden');
+  hideRenameRow();
+  renderLibrary();
+  toast(code ? 'Saved — future scans of this barcode use your name' : 'Renamed');
+}
+
 /* =====================================================================
    FOOD EDITOR SHEET
    ===================================================================== */
@@ -351,6 +558,14 @@ function openFoodEditor(food, presetName) {
   $('#fC').value     = food ? food.c : '';
   $('#fF').value     = food ? food.f : '';
   $('#fServe').value = food ? (food.serve || (food.u && food.u[0] ? food.u[0].g : '')) : '';
+
+  const ids = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
+  MICROS.forEach(m => {
+    $(ids[m.k]).value = food && typeof food[m.k] === 'number' ? food[m.k] : '';
+  });
+  /* Open the extras straight away if this food already has some. */
+  const anyMicro = food && MICROS.some(m => typeof food[m.k] === 'number');
+  setExpanded($('#fsMoreBtn'), $('#fsMicros'), !!anyMicro);
 
   const del = $('#fsDelete');
   del.classList.toggle('hidden', !food);
@@ -388,6 +603,18 @@ function saveFoodFromEditor() {
   };
   const serve = parseFloat($('#fServe').value);
   if (serve > 0) rec.serve = serve;
+
+  /* Micros: a filled field is stored as a number. A field cleared by hand
+     is stored as null, which reads as "unknown" everywhere and is the only
+     way to drop a built-in seed value. A field that was blank all along is
+     omitted, so it can still inherit from the seed food. */
+  const ids = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
+  const inherited = fsEditingId ? (foodById(fsEditingId) || {}) : {};
+  MICROS.forEach(m => {
+    const v = numOrUndef($(ids[m.k]).value);
+    if (v !== undefined) rec[m.k] = v;
+    else if (typeof inherited[m.k] === 'number') rec[m.k] = null;
+  });
 
   const i = state.custom.findIndex(x => x.id === rec.id);
   if (i >= 0) state.custom[i] = Object.assign({}, state.custom[i], rec);
@@ -463,6 +690,60 @@ function foodRow(f, onClick, subOverride) {
    429s without CORS headers, so they land here as plain network failures.
    Hence: a minimum query length, a long debounce, and a session cache. */
 const offCache = new Map();
+const OFF_FIELDS = 'code,product_name,product_name_en,generic_name,generic_name_en,brands,quantity,nutriments';
+
+/* Prefer an English name, and remember any name I typed for this barcode. */
+function pickEnglishName(p) {
+  const mine = state.names[p.code];
+  if (mine) return { name: mine, needsRename: false };
+
+  const candidates = [p.product_name_en, p.generic_name_en, p.product_name, p.generic_name];
+  const english = candidates.find(n => n && n.trim() && !hasArabic(n));
+  if (english) return { name: english.trim(), needsRename: false };
+
+  const any = candidates.find(n => n && n.trim());
+  if (any) return { name: any.trim(), needsRename: true };
+
+  return { name: (p.brands || 'Unknown product') + ' ' + p.code, needsRename: true };
+}
+
+/* OFF reports these per 100 g in grams; we keep mg for the mineral-type
+   ones. Implausible values (bad crowd data) are dropped rather than shown. */
+function offMicros(nu) {
+  const m = {};
+  const put = (k, v, max) => {
+    if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max) m[k] = r1(v);
+  };
+  const mg = v => (typeof v === 'number' ? v * 1000 : undefined);
+
+  put('fb', nu.fiber_100g, 100);
+  put('sg', nu.sugars_100g, 100);
+  put('na', nu.sodium_100g != null ? nu.sodium_100g * 1000
+          : nu.salt_100g != null ? nu.salt_100g * 400 : undefined, 20000);
+  put('ch', mg(nu.cholesterol_100g), 5000);
+  put('ca', mg(nu.calcium_100g), 5000);
+  put('fe', mg(nu.iron_100g), 200);
+  return m;
+}
+
+function offToFood(p) {
+  const nu = p.nutriments || {};
+  const kcal = nu['energy-kcal_100g'] ?? (nu['energy_100g'] ? nu['energy_100g'] / 4.184 : null);
+  if (kcal == null) return null;
+
+  const { name, needsRename } = pickEnglishName(p);
+  return Object.assign({
+    id: 'off:' + p.code,
+    n: name,
+    g: [p.brands, p.quantity].filter(Boolean).join(' · ') || 'Packaged',
+    kcal: r1(kcal),
+    p: r1(nu.proteins_100g || 0),
+    c: r1(nu.carbohydrates_100g || 0),
+    f: r1(nu.fat_100g || 0),
+    src: 'off',
+    needsRename,
+  }, offMicros(nu));
+}
 
 async function searchOFF(q) {
   const term = q.trim();
@@ -486,19 +767,16 @@ async function searchOFF(q) {
   if (offAbort) offAbort.abort();
   offAbort = new AbortController();
 
-  /* A pure number is a barcode — the product endpoint is far more reliable
-     than free-text search, so type or paste the number off the packet. */
   const barcode = /^\d{8,14}$/.test(term);
-  const FIELDS = 'code,product_name,brands,quantity,nutriments';
   const urls = barcode
-    ? [`https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=${FIELDS}`]
+    ? [`https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=${OFF_FIELDS}`]
     : [
         'https://world.openfoodfacts.org/cgi/search.pl'
-          + `?search_simple=1&action=process&json=1&page_size=12&fields=${FIELDS}`
+          + `?search_simple=1&action=process&json=1&page_size=12&fields=${OFF_FIELDS}`
           + '&search_terms=' + encodeURIComponent(term),
         /* Second door: the two search endpoints fail independently. */
         'https://world.openfoodfacts.org/api/v2/search'
-          + `?page_size=12&fields=${FIELDS}`
+          + `?page_size=12&fields=${OFF_FIELDS}`
           + '&search_terms=' + encodeURIComponent(term),
       ];
 
@@ -518,21 +796,7 @@ async function searchOFF(q) {
     if (!data) throw lastErr || new Error('no response');
 
     const raw = barcode ? (data.product ? [data.product] : []) : (data.products || []);
-    const items = raw.map(p => {
-      const nu = p.nutriments || {};
-      const kcal = nu['energy-kcal_100g'] ?? (nu['energy_100g'] ? nu['energy_100g'] / 4.184 : null);
-      if (kcal == null || !p.product_name) return null;
-      return {
-        id: 'off:' + p.code,
-        n: p.product_name.trim(),
-        g: [p.brands, p.quantity].filter(Boolean).join(' · ') || 'Packaged',
-        kcal: r1(kcal),
-        p: r1(nu.proteins_100g || 0),
-        c: r1(nu.carbohydrates_100g || 0),
-        f: r1(nu.fat_100g || 0),
-        src: 'off',
-      };
-    }).filter(Boolean).slice(0, 8);
+    const items = raw.map(offToFood).filter(Boolean).slice(0, 8);
 
     offCache.set(term.toLowerCase(), items);
     paintOFF(items);
@@ -554,10 +818,19 @@ function paintOFF(items) {
   empty.classList.toggle('hidden', items.length > 0);
 
   items.forEach(f => list.appendChild(foodRow(f, () => {
-    /* Keep it, so the second time it is a local hit. */
-    if (!state.custom.some(x => x.id === f.id)) { state.custom.push(f); saveFoods(); }
+    rememberOffFood(f);
     openPortion({ mode: 'add', food: f });
   })));
+}
+
+/* Keep it, so the second time it is a local hit. */
+function rememberOffFood(f) {
+  const rec = Object.assign({}, f);
+  delete rec.needsRename;
+  const i = state.custom.findIndex(x => x.id === rec.id);
+  if (i >= 0) state.custom[i] = Object.assign({}, state.custom[i], rec);
+  else state.custom.push(rec);
+  saveFoods();
 }
 
 function renderRecent() {
@@ -571,6 +844,148 @@ function renderRecent() {
     list.appendChild(foodRow(f, () => openPortion({ mode: 'add', food: f, grams: s.lastG }),
       `Last time: ${r0(s.lastG)} g · logged ${s.count}×`));
   });
+}
+
+/* =====================================================================
+   BARCODE SCANNER
+   ===================================================================== */
+
+let scanner = null, scanLibPromise = null, scanBusy = false;
+
+function loadScanLib() {
+  if (window.__Html5QrcodeLibrary__) return Promise.resolve();
+  if (scanLibPromise) return scanLibPromise;
+  scanLibPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/html5-qrcode.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => { scanLibPromise = null; reject(new Error('lib')); };
+    document.head.appendChild(s);
+  });
+  return scanLibPromise;
+}
+
+function scanFail(title, body, showManual = true) {
+  const box = $('#scanError');
+  box.innerHTML = `<b>${escapeHtml(title)}</b>${escapeHtml(body)}`;
+  box.classList.remove('hidden');
+  $('#scanHint').classList.add('hidden');
+  $('#reader').classList.add('hidden');
+  if (showManual) revealManualBarcode();
+}
+
+function revealManualBarcode() {
+  $('#scanManualRow').classList.remove('hidden');
+  $('#scanManual').classList.add('hidden');
+  setTimeout(() => $('#scanManualInput').focus(), 80);
+}
+
+async function openScanner() {
+  $('#scanError').classList.add('hidden');
+  $('#scanHint').classList.remove('hidden');
+  $('#reader').classList.remove('hidden');
+  $('#scanManualRow').classList.add('hidden');
+  $('#scanManual').classList.remove('hidden');
+  $('#scanManualInput').value = '';
+  showSheet('#scanSheet');
+
+  if (!window.isSecureContext) {
+    scanFail('Camera needs a secure connection. ',
+      'Open the app over https (the GitHub Pages link) rather than a plain http address, then try again.');
+    return;
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    scanFail('This browser will not share the camera. ',
+      'On iPhone the camera only works in Safari or a Home Screen app — not inside another app’s in-app browser.');
+    return;
+  }
+
+  try {
+    await loadScanLib();
+  } catch {
+    scanFail('Scanner could not load. ', 'Type the barcode number from the packet instead.');
+    return;
+  }
+
+  const lib = window.__Html5QrcodeLibrary__;
+  const F = lib.Html5QrcodeSupportedFormats;
+  try {
+    scanner = new lib.Html5Qrcode('reader', {
+      verbose: false,
+      formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF],
+    });
+    await scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 260, height: 140 }, aspectRatio: 1.4 },
+      onBarcode,
+      () => {}                     // per-frame misses are normal; ignore
+    );
+  } catch (err) {
+    /* html5-qrcode rejects with a plain string like
+       "Error getting userMedia, error = NotAllowedError: Permission denied",
+       so the DOMException name only exists inside the text. */
+    const name = typeof err === 'string' ? err
+      : [err && err.name, err && err.message, String(err)].filter(Boolean).join(' ');
+
+    if (/NotAllowed|Permission|denied/i.test(name)) {
+      scanFail('Camera permission was denied. ',
+        'On iPhone: Settings → Safari → Camera → Allow, or tap the “aA” icon in the address bar → Website Settings. Then reopen the scanner. You can type the number in the meantime.');
+    } else if (/NotFound|Devices|OverConstrained/i.test(name)) {
+      scanFail('No usable camera found. ', 'Type the barcode number from the packet instead.');
+    } else {
+      scanFail('Could not start the camera. ', 'Type the barcode number from the packet instead.');
+    }
+  }
+}
+
+async function stopScanner() {
+  if (!scanner) return;
+  const s = scanner;
+  scanner = null;
+  try { if (s.isScanning) await s.stop(); } catch {}
+  try { s.clear(); } catch {}
+}
+
+function onBarcode(text) {
+  if (scanBusy) return;
+  scanBusy = true;
+  if (navigator.vibrate) navigator.vibrate(40);
+  stopScanner().then(() => lookupBarcode(String(text).trim()));
+}
+
+async function lookupBarcode(code) {
+  closeSheets();
+  toast(`Looking up ${code}…`);
+
+  /* Already in the library — skip the network entirely. */
+  const known = foodById('off:' + code);
+  if (known) {
+    scanBusy = false;
+    openPortion({ mode: 'add', food: known });
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const food = data.product ? offToFood(data.product) : null;
+
+    if (!food) {
+      toast('Not in Open Food Facts — add it yourself');
+      openFoodEditor(null, '');
+      return;
+    }
+    rememberOffFood(food);
+    openPortion({ mode: 'add', food });
+    if (food.needsRename) toast('No English name on file — tap Rename');
+  } catch {
+    toast('Could not reach Open Food Facts — add it manually');
+    openFoodEditor(null, '');
+  } finally {
+    scanBusy = false;
+  }
 }
 
 /* =====================================================================
@@ -598,6 +1013,7 @@ function renderSettings() {
   $('#tP').value = state.targets.p;
   $('#tC').value = state.targets.c;
   $('#tF').value = state.targets.f;
+  $('#tW').value = state.targets.water;
   checkTargetMath();
 }
 
@@ -611,22 +1027,24 @@ function checkTargetMath() {
 }
 
 function persistTargets() {
-  const t = {
-    kcal: Math.max(0, +$('#tKcal').value || 0),
-    p: Math.max(0, +$('#tP').value || 0),
-    c: Math.max(0, +$('#tC').value || 0),
-    f: Math.max(0, +$('#tF').value || 0),
+  state.targets = {
+    kcal:  Math.max(0, +$('#tKcal').value || 0),
+    p:     Math.max(0, +$('#tP').value || 0),
+    c:     Math.max(0, +$('#tC').value || 0),
+    f:     Math.max(0, +$('#tF').value || 0),
+    water: Math.max(0, +$('#tW').value || 0),
   };
-  state.targets = t;
   saveTargets();
   renderSummary();
+  renderWater();
   toast('Targets saved');
 }
 
 function exportBackup() {
   const payload = {
-    app: 'macros', version: 1, exported: new Date().toISOString(),
+    app: 'macros', version: 2, exported: new Date().toISOString(),
     targets: state.targets, foods: state.custom, entries: state.entries,
+    water: state.water, names: state.names,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -652,9 +1070,11 @@ function importBackup(file) {
       };
       state.custom  = byId(state.custom, d.foods);
       state.entries = byId(state.entries, d.entries);
+      state.water   = byId(state.water, d.water);
+      state.names   = Object.assign({}, state.names, d.names || {});
       if (d.targets) state.targets = Object.assign({}, DEFAULT_TARGETS, d.targets);
 
-      saveFoods(); saveEntries(); saveTargets();
+      saveFoods(); saveEntries(); saveWater(); saveNames(); saveTargets();
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {
@@ -668,15 +1088,23 @@ function importBackup(file) {
    SHEETS, TOAST, NAV
    ===================================================================== */
 
+function setExpanded(btn, panel, open) {
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  panel.classList.toggle('hidden', !open);
+}
+
 function showSheet(sel) {
   $('#scrim').classList.remove('hidden');
   $(sel).classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
 function closeSheets() {
+  stopScanner();
+  scanBusy = false;
   $('#scrim').classList.add('hidden');
   $('#portionSheet').classList.add('hidden');
   $('#foodSheet').classList.add('hidden');
+  $('#scanSheet').classList.add('hidden');
   document.body.style.overflow = '';
 }
 
@@ -724,6 +1152,23 @@ function init() {
   $('#datePicker').onchange = e => { if (e.target.value) { state.date = e.target.value; renderAll(); } };
   $('.datewrap').onclick = () => { const d = $('#datePicker'); d.showPicker ? d.showPicker() : d.click(); };
 
+  /* full breakdown */
+  $('#toggleTotals').onclick = () => {
+    totalsOpen = !totalsOpen;
+    setExpanded($('#toggleTotals'), $('#totalsMicros'), totalsOpen);
+  };
+
+  /* water */
+  $$('.waterquick .chip').forEach(b => b.onclick = () => {
+    const rec = addWater(+b.dataset.ml);
+    if (rec) toast(`${rec.ml} ml logged`, 'Undo', () => removeWaterSilent(rec.id));
+  });
+  $('#waterAdd').onclick = () => {
+    const rec = addWater($('#waterInput').value);
+    if (rec) { $('#waterInput').value = ''; $('#waterInput').blur(); toast(`${rec.ml} ml logged`); }
+  };
+  $('#waterInput').onkeydown = e => { if (e.key === 'Enter') $('#waterAdd').click(); };
+
   /* search */
   const si = $('#searchInput');
   si.oninput = () => runSearch(si.value);
@@ -731,10 +1176,28 @@ function init() {
   $('#searchClear').onclick = () => { si.value = ''; runSearch(''); si.focus(); };
   $('#createFromSearch').onclick = () => openFoodEditor(null, si.value.trim());
 
+  /* scanner */
+  $('#scanBtn').onclick = openScanner;
+  $('#scanManual').onclick = revealManualBarcode;
+  $('#scanManualGo').onclick = () => {
+    const code = $('#scanManualInput').value.trim();
+    if (!/^\d{6,14}$/.test(code)) { toast('Enter the digits under the barcode'); return; }
+    stopScanner().then(() => lookupBarcode(code));
+  };
+  $('#scanManualInput').onkeydown = e => { if (e.key === 'Enter') $('#scanManualGo').click(); };
+  $('#scanCancel').onclick = closeSheets;
+
   /* portion sheet */
   $('#psGrams').oninput = previewPortion;
   $('#psMinus').onclick = () => { const i = $('#psGrams'); i.value = Math.max(0, (+i.value || 0) - 10); previewPortion(); };
   $('#psPlus').onclick  = () => { const i = $('#psGrams'); i.value = (+i.value || 0) + 10; previewPortion(); };
+  $('#psMoreBtn').onclick = () => {
+    psMicroOpen = !psMicroOpen;
+    setExpanded($('#psMoreBtn'), $('#psMicroWrap'), psMicroOpen);
+  };
+  $('#psRename').onclick = showRenameRow;
+  $('#psRenameSave').onclick = saveRename;
+  $('#psRenameInput').onkeydown = e => { if (e.key === 'Enter') saveRename(); };
   $('#psSave').onclick = commitPortion;
   $('#psDelete').onclick = deleteEntry;
   $('#psCancel').onclick = closeSheets;
@@ -744,6 +1207,10 @@ function init() {
   $('#newFoodBtn').onclick = () => openFoodEditor(null, $('#libSearch').value.trim());
   $('#libSearch').oninput = renderLibrary;
   ['#fKcal', '#fP', '#fC', '#fF'].forEach(s => $(s).oninput = checkFoodMath);
+  $('#fsMoreBtn').onclick = () => {
+    const open = $('#fsMoreBtn').getAttribute('aria-expanded') !== 'true';
+    setExpanded($('#fsMoreBtn'), $('#fsMicros'), open);
+  };
   $('#fsSave').onclick = saveFoodFromEditor;
   $('#fsDelete').onclick = deleteFoodFromEditor;
   $('#fsCancel').onclick = closeSheets;
@@ -751,14 +1218,14 @@ function init() {
   /* settings */
   ['#tKcal', '#tP', '#tC', '#tF'].forEach(s => $(s).oninput = checkTargetMath);
   $('#saveTargets').onclick = persistTargets;
-  $('#resetTargets').onclick = () => { state.targets = Object.assign({}, DEFAULT_TARGETS); saveTargets(); renderSettings(); renderSummary(); toast('Targets reset'); };
+  $('#resetTargets').onclick = () => { state.targets = Object.assign({}, DEFAULT_TARGETS); saveTargets(); renderSettings(); renderSummary(); renderWater(); toast('Targets reset'); };
   $('#exportBtn').onclick = exportBackup;
   $('#importBtn').onclick = () => $('#importFile').click();
   $('#importFile').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };
   $('#wipeBtn').onclick = () => {
-    if (!confirm('Erase every log entry, custom food and target on this device?')) return;
+    if (!confirm('Erase every log entry, custom food, water record and target on this device?')) return;
     if (!confirm('Really erase everything? Export a backup first if you want to keep it.')) return;
-    [KEY.set, KEY.foods, KEY.log].forEach(k => localStorage.removeItem(k));
+    Object.values(KEY).forEach(k => localStorage.removeItem(k));
     load(); state.date = todayStr();
     renderAll(); renderLibrary(); renderSettings();
     toast('All data erased');
@@ -768,12 +1235,23 @@ function init() {
 
   /* Roll the log over to the real today if the app sat open overnight. */
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && state.date < todayStr()) { state.date = todayStr(); renderAll(); }
+    if (document.hidden) { stopScanner(); return; }
+    if (state.date < todayStr()) { state.date = todayStr(); renderAll(); }
   });
 
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  /* Offline support on the real host only. On localhost the cache-first
+     worker would keep serving a stale build while editing, so skip it. */
+  const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isLocal) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+}
+
+/* Undo for a water quick-add: drop it without the second confirming toast. */
+function removeWaterSilent(id) {
+  state.water = state.water.filter(w => w.id !== id);
+  saveWater();
+  renderWater();
 }
 
 init();

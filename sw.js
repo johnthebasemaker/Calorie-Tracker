@@ -1,6 +1,6 @@
 /* Service worker: cache the app shell so the tracker opens offline.
    Bump CACHE when you change any shell file. */
-const CACHE = 'macros-v1';
+const CACHE = 'macros-v2';
 
 const SHELL = [
   './',
@@ -8,6 +8,7 @@ const SHELL = [
   './styles.css',
   './foods.js',
   './app.js',
+  './vendor/html5-qrcode.min.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
