@@ -67,6 +67,53 @@ Open Food Facts for the English fields first (`product_name_en`, then
 and offers **Rename** — the name you type is stored against that barcode, so
 every future scan of that product uses your name.
 
+**Burn & balance.** Four fixed check-ins a day — 8:00 AM, 12:00 PM, 5:00 PM,
+10:30 PM. At each one you type the **cumulative** total Apple Health is showing;
+you never work out a difference yourself.
+
+Apple Health resets at midnight, so the 8am reading *is* the midnight-to-8am
+segment with nothing subtracted. Every later segment is that reading minus the
+one before it. Balance is eaten minus burned — a surplus shows green because
+that's what builds weight on a bulk, a shortfall shows amber.
+
+Miss a check-in and the two windows merge into one wider row, labelled with what
+was missed. Because the readings are cumulative, the later one still contains
+that burn, so the merged figure is exact rather than estimated — nothing is lost
+and the segments still sum to the day total. Food eaten after your last check-in
+gets its own row with burn shown as "—", since there's no reading to compare it
+against yet. A reading that would go *down* is refused with an explanation,
+because a cumulative total that falls is a typo.
+
+**Meal times.** Every log entry carries the time you ate, pre-filled with the
+current time and editable in the portion sheet. Log breakfast at 2pm because you
+were on shift and you can correct it to 07:30, so it lands in the right segment.
+Entries logged before this existed fall back to when they were saved.
+
+**Check-in reminders.** There's no server, so there are no push notifications —
+your iPhone Reminders do the nudging. When you open the app it checks the clock
+against the four times and shows a dismissible banner for every checkpoint that
+has passed unlogged, each with its own input. Open it at 3pm having missed 8am
+and 12pm and you get both rows at once. Dismissing lasts for the session, so the
+nudge returns next time you open the app rather than vanishing for the day.
+
+**Week.** Its own tab. The same topbar arrows step by week instead of by day.
+Per day: burned, eaten, balance and protein against target, plus averages that
+cover only the days with data — a day you logged nothing is left out rather than
+dragged down as a zero.
+
+**Meal suggestions.** Saving a check-in automatically asks the model what to eat
+next, given your remaining calories and protein, everything logged so far with
+times, your burn/eaten balance, and 55 foods from your own library with their
+per-100 g values. It's told to name only foods from that list, so you get "add
+150 g chicken breast and 3 idli with sambar" rather than generic advice.
+
+Read-only — it never saves anything, so there's no confirm step. Each suggestion
+is cached against its checkpoint, so re-opening the app doesn't spend another
+call; **Suggest again** forces a fresh one. Four calls a day sits inside
+OpenRouter's limits, but free models share a daily cap with barcode estimates —
+if a retry gets throttled the previous suggestion stays on screen and the footer
+says the retry failed.
+
 **AI estimation.** When a barcode or a text search finds nothing, you get two
 options side by side: **Enter it manually** or **✦ Estimate with AI**. The AI path
 asks you to describe the food first — a barcode number on its own is not enough

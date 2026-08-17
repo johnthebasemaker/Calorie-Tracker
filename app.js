@@ -11,6 +11,28 @@ const KEY = {
   water: 'ct.water.v1',
   names: 'ct.names.v1',     // barcode -> the English name you gave it
   ai:    'ct.ai.v1',        // { key, model } — device-only, never exported
+  burn:  'ct.burn.v1',      // cumulative Apple Health readings per checkpoint
+  advice:'ct.advice.v1',    // cached AI suggestion per date+checkpoint
+};
+
+/* Fixed daily check-in points, matching the meal rhythm. At each one you type
+   the CUMULATIVE burn Apple Health is showing; segments are derived by
+   subtraction. Apple Health resets at midnight, so the 8am reading IS the
+   midnight-to-8am segment with nothing to subtract. */
+const CHECKPOINTS = [
+  { k: 'c0800', min: 8 * 60,       label: '8:00 AM',   short: '8am' },
+  { k: 'c1200', min: 12 * 60,      label: '12:00 PM',  short: '12pm' },
+  { k: 'c1700', min: 17 * 60,      label: '5:00 PM',   short: '5pm' },
+  { k: 'c2230', min: 22 * 60 + 30, label: '10:30 PM',  short: '10:30pm' },
+];
+
+/* Names for the four standard windows. A merged window (skipped check-in)
+   falls through to a plain time range instead of a misleading name. */
+const SEG_NAMES = {
+  '0-480':     'Night → Morning',
+  '480-720':   'Morning → Midday',
+  '720-1020':  'Midday → Evening',
+  '1020-1350': 'Evening → Night',
 };
 
 /* OpenRouter is OpenAI-compatible and returns access-control-allow-origin: *,
@@ -44,7 +66,10 @@ const state = {
   water:   [],          // water log rows
   names:   {},          // barcode -> English name
   ai:      { key: '', model: AI_DEFAULT_MODEL },
+  burn:    [],          // { id, d, cp, cum, ts }
+  advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
   date:    todayStr(),
+  weekStart: mondayOf(todayStr()),
 };
 
 function readJSON(k, fallback) {
@@ -63,12 +88,16 @@ function load() {
   state.water   = readJSON(KEY.water, []);
   state.names   = readJSON(KEY.names, {});
   state.ai      = Object.assign({ key: '', model: AI_DEFAULT_MODEL }, readJSON(KEY.ai, {}));
+  state.burn    = readJSON(KEY.burn, []);
+  state.advice  = readJSON(KEY.advice, {});
 }
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
 const saveNames   = () => writeJSON(KEY.names, state.names);
 const saveAi      = () => writeJSON(KEY.ai, state.ai);
+const saveBurn    = () => writeJSON(KEY.burn, state.burn);
+const saveAdvice  = () => writeJSON(KEY.advice, state.advice);
 const saveTargets = () => writeJSON(KEY.set, state.targets);
 
 /* ------------------------------- helpers ------------------------------- */
@@ -88,6 +117,30 @@ function prettyDate(str) {
   const [y, m, d] = str.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
+function mondayOf(str) {
+  const [y, m, d] = str.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return shiftDate(str, -((dt.getDay() + 6) % 7));   // getDay: 0=Sun
+}
+const nowMinutes = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+
+/* Minutes past midnight for a log entry. Older entries have no `tm`, so it is
+   derived from when they were saved — close enough, and editable from then on. */
+function entryMin(e) {
+  if (typeof e.tm === 'number') return e.tm;
+  const d = new Date(e.ts);
+  return d.getHours() * 60 + d.getMinutes();
+}
+const minToHHMM = m =>
+  `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+function minToPretty(m) {
+  if (m <= 0) return 'Midnight';
+  const h24 = Math.floor(m / 60), mm = m % 60;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(mm).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`;
+}
+const signed = n => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(r0(n)).toLocaleString();
+
 const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const slugify = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || uid();
 const r0   = n => Math.round(n);
@@ -154,7 +207,9 @@ function usageStats() {
 
 /* ------------------------------- totals ------------------------------- */
 
-const entriesFor = d => state.entries.filter(e => e.d === d).sort((a, b) => a.ts - b.ts);
+/* Ordered by when the food was eaten, not when it was typed in. */
+const entriesFor = d => state.entries.filter(e => e.d === d)
+  .sort((a, b) => entryMin(a) - entryMin(b) || a.ts - b.ts);
 
 function macrosOf(e) {
   const k = e.g / 100;
@@ -182,6 +237,113 @@ function microTotalsFor(d) {
     out[m.k] = { sum, have, total: rows.length };
   });
   return out;
+}
+
+/* =====================================================================
+   BURN CHECK-INS AND SEGMENTS
+   ===================================================================== */
+
+const burnFor    = d => state.burn.filter(b => b.d === d);
+const burnAt     = (d, cpKey) => burnFor(d).find(b => b.cp === cpKey);
+/* Readings are cumulative, so the day's burn is simply the latest one. */
+function burnDayTotal(d) {
+  const logged = loggedCheckpoints(d);
+  return logged.length ? logged[logged.length - 1].cum : null;
+}
+function loggedCheckpoints(d) {
+  return CHECKPOINTS
+    .map(cp => { const rec = burnAt(d, cp.k); return rec ? { cp, cum: rec.cum } : null; })
+    .filter(Boolean)
+    .sort((a, b) => a.cp.min - b.cp.min);
+}
+
+/* Build the day's segments from whatever check-ins exist.
+   A skipped check-in merges its window into the next one — because readings
+   are cumulative, the later reading still contains that burn, so subtracting
+   across the wider gap is exact rather than an estimate. */
+function segmentsFor(d) {
+  const logged = loggedCheckpoints(d);
+  const rows = entriesFor(d);
+  const segs = [];
+  let prevMin = 0, prevCum = 0;
+
+  logged.forEach(({ cp, cum }) => {
+    const missed = CHECKPOINTS.filter(c => c.min > prevMin && c.min < cp.min);
+    segs.push({
+      from: prevMin,
+      to: cp.min,
+      label: SEG_NAMES[`${prevMin}-${cp.min}`] || `${minToPretty(prevMin)} – ${minToPretty(cp.min)}`,
+      burned: cum - prevCum,
+      missed: missed.map(m => m.short),
+      at: cp.label,
+    });
+    prevMin = cp.min;
+    prevCum = cum;
+  });
+
+  /* Food eaten after the last reading has no burn figure to sit against. */
+  const tailEaten = rows.filter(e => entryMin(e) >= prevMin);
+  if (tailEaten.length) {
+    segs.push({
+      from: prevMin,
+      to: 1441,
+      label: prevMin === 0 ? 'Not yet checked in' : `After ${minToPretty(prevMin)}`,
+      burned: null,
+      missed: [],
+      tail: true,
+    });
+  }
+
+  segs.forEach(s => {
+    const inSeg = rows.filter(e => { const m = entryMin(e); return m >= s.from && m < s.to; });
+    const t = inSeg.reduce((acc, e) => {
+      const mm = macrosOf(e);
+      acc.kcal += mm.kcal; acc.p += mm.p;
+      return acc;
+    }, { kcal: 0, p: 0 });
+    s.eaten = t.kcal;
+    s.protein = t.p;
+    s.count = inSeg.length;
+    s.balance = s.burned == null ? null : s.eaten - s.burned;
+  });
+
+  return segs;
+}
+
+/* Checkpoints that are due today but not logged, for the app-open banner. */
+function pendingCheckpoints(d = todayStr()) {
+  if (d !== todayStr()) return [];
+  const now = nowMinutes();
+  return CHECKPOINTS.filter(cp => cp.min <= now && !burnAt(d, cp.k));
+}
+
+function saveCheckin(d, cpKey, cum) {
+  const existing = burnAt(d, cpKey);
+  if (existing) {
+    existing.cum = cum;
+    existing.ts = Date.now();
+  } else {
+    const cp = CHECKPOINTS.find(c => c.k === cpKey);
+    state.burn.push({ id: uid(), d, cp: cpKey, cum, ts: Date.now(), min: cp ? cp.min : 0 });
+  }
+  saveBurn();
+}
+
+/* A cumulative figure must not fall below an earlier one or exceed a later
+   one — that is a typo, not a reading, and it would produce negative burn. */
+function checkinConflict(d, cpKey, cum) {
+  const cp = CHECKPOINTS.find(c => c.k === cpKey);
+  if (!cp) return null;
+  for (const l of loggedCheckpoints(d)) {
+    if (l.cp.k === cpKey) continue;
+    if (l.cp.min < cp.min && cum < l.cum) {
+      return `Lower than your ${l.cp.label} reading of ${l.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
+    }
+    if (l.cp.min > cp.min && cum > l.cum) {
+      return `Higher than your ${l.cp.label} reading of ${l.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
+    }
+  }
+  return null;
 }
 
 /* ------------------------------- water ------------------------------- */
@@ -213,17 +375,33 @@ function removeWater(id) {
    RENDER
    ===================================================================== */
 
-let totalsOpen = false, psMicroOpen = false;
+let totalsOpen = false, psMicroOpen = false, currentView = 'today';
+const bannerDismissed = new Set();   // per session, so the nudge returns next launch
 
 function renderAll() {
   renderDate();
+  renderBanner();
   renderSummary();
   renderWater();
+  renderBurn();
   renderQuick();
   renderEntries();
+  if (currentView === 'week') renderWeek();
 }
 
+/* The topbar arrows drive whichever view is showing: days on Today,
+   whole weeks on Week. */
 function renderDate() {
+  if (currentView === 'week') {
+    const end = shiftDate(state.weekStart, 6);
+    const f = s => { const [y, m, d] = s.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); };
+    $('#dateLabel').textContent = `${f(state.weekStart)} – ${f(end)}`;
+    $('#datePicker').disabled = true;
+    $('#nextDay').style.visibility = state.weekStart >= mondayOf(todayStr()) ? 'hidden' : 'visible';
+    return;
+  }
+  $('#datePicker').disabled = false;
   $('#dateLabel').textContent = prettyDate(state.date);
   $('#datePicker').value = state.date;
   $('#nextDay').style.visibility = state.date >= todayStr() ? 'hidden' : 'visible';
@@ -311,6 +489,191 @@ function renderWater() {
   });
 }
 
+/* --------------------------- burn & balance --------------------------- */
+
+function renderBurn() {
+  const d = state.date;
+  const segs = segmentsFor(d);
+  const burned = burnDayTotal(d);
+  const eaten = totalsFor(d).kcal;
+
+  const bd = $('#burnDay');
+  bd.textContent = burned == null ? '—' : r0(burned).toLocaleString();
+  bd.classList.toggle('none', burned == null);
+  $('#eatDay').textContent = r0(eaten).toLocaleString();
+
+  const bal = $('#balDay');
+  if (burned == null) {
+    bal.textContent = '—';
+    bal.className = 'none';
+  } else {
+    const diff = eaten - burned;
+    bal.textContent = signed(diff);
+    /* Bulking: a surplus is the goal, a shortfall is the thing to flag. */
+    bal.className = diff > 0 ? 'good' : diff < 0 ? 'warn' : '';
+  }
+
+  const body = $('#segBody');
+  body.innerHTML = '';
+  segs.forEach(s => {
+    const tr = document.createElement('tr');
+    const missed = s.missed.length ? `<span class="sm">${s.missed.join(' + ')} missed — merged</span>` : '';
+    const balCell = s.balance == null
+      ? '<span class="none">—</span>'
+      : `<span class="${s.balance > 0 ? 'good' : s.balance < 0 ? 'warn' : ''}">${signed(s.balance)}</span>`;
+    tr.innerHTML = `
+      <td>${escapeHtml(s.label)}${missed}</td>
+      <td>${s.burned == null ? '<span class="none">—</span>' : r0(s.burned).toLocaleString()}</td>
+      <td>${r0(s.eaten).toLocaleString()}</td>
+      <td>${balCell}</td>`;
+    body.appendChild(tr);
+  });
+
+  const note = $('#burnNote');
+  if (!segs.length) {
+    note.textContent = 'No check-ins yet today. Tap a time below and enter the cumulative total from Apple Health.';
+  } else if (segs.some(s => s.tail)) {
+    note.textContent = 'Food logged after your last check-in has no burn figure to sit against yet — log the next check-in and it fills in.';
+  } else if (segs.some(s => s.missed.length)) {
+    note.textContent = 'A missed check-in merges into the next window. Because readings are cumulative, the merged figure is exact, not estimated.';
+  } else {
+    note.textContent = 'Balance is eaten minus burned. A surplus (green) is what builds weight on a bulk; a shortfall (amber) means you ate less than you burned.';
+  }
+
+  /* check-in chips */
+  const chips = $('#cpChips');
+  chips.innerHTML = '';
+  const now = nowMinutes(), isToday = d === todayStr();
+  CHECKPOINTS.forEach(cp => {
+    const rec = burnAt(d, cp.k);
+    const due = isToday && !rec && cp.min <= now;
+    const b = document.createElement('button');
+    b.className = 'chip' + (rec ? ' done' : due ? ' due' : '');
+    b.innerHTML = `${cp.short}<small>${rec ? r0(rec.cum).toLocaleString() + ' kcal' : due ? 'due' : 'log'}</small>`;
+    b.onclick = () => openCheckin(d, cp.k);
+    chips.appendChild(b);
+  });
+
+  renderAdvice();
+}
+
+function renderBanner() {
+  const banner = $('#cpBanner');
+  const pending = pendingCheckpoints().filter(cp => !bannerDismissed.has(cp.k));
+
+  if (state.date !== todayStr() || !pending.length) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  $('#bannerTitle').textContent = pending.length === 1
+    ? `It’s past ${pending[0].label} — log burned calories?`
+    : `${pending.length} check-ins pending — log burned calories?`;
+
+  const rows = $('#bannerRows');
+  rows.innerHTML = '';
+  pending.forEach(cp => {
+    const row = document.createElement('div');
+    row.className = 'bannerrow';
+    row.innerHTML = `<span>${cp.label}</span>`;
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.inputMode = 'numeric';
+    input.placeholder = 'kcal';
+    input.setAttribute('aria-label', `Cumulative burned at ${cp.label}`);
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Log';
+    const commit = () => {
+      const v = parseFloat(input.value);
+      if (!(v >= 0)) { toast('Enter the cumulative total from Apple Health'); input.focus(); return; }
+      const conflict = checkinConflict(todayStr(), cp.k, v);
+      if (conflict) { toast(conflict); input.focus(); return; }
+      saveCheckin(todayStr(), cp.k, v);
+      toast(`${cp.label} check-in saved`);
+      renderAll();
+      requestAdvice(todayStr(), cp.k);
+    };
+    btn.onclick = commit;
+    input.onkeydown = e => { if (e.key === 'Enter') commit(); };
+
+    row.appendChild(input);
+    row.appendChild(btn);
+    rows.appendChild(row);
+  });
+
+  banner.classList.remove('hidden');
+}
+
+/* --------------------------------- week --------------------------------- */
+
+function weekDays() {
+  return Array.from({ length: 7 }, (_, i) => shiftDate(state.weekStart, i));
+}
+
+function renderWeek() {
+  const days = weekDays();
+  const body = $('#weekBody');
+  body.innerHTML = '';
+
+  let sumB = 0, nB = 0, sumE = 0, nE = 0, sumP = 0;
+  const today = todayStr();
+
+  days.forEach(d => {
+    const burned = burnDayTotal(d);
+    const t = totalsFor(d);
+    const hasFood = entriesFor(d).length > 0;
+    if (burned != null) { sumB += burned; nB++; }
+    if (hasFood) { sumE += t.kcal; sumP += t.p; nE++; }
+
+    const [, , dd] = d.split('-');
+    const dt = new Date(...d.split('-').map((v, i) => (i === 1 ? +v - 1 : +v)));
+    const bal = burned == null ? null : t.kcal - burned;
+
+    const tr = document.createElement('tr');
+    if (d === today) tr.className = 'today';
+    tr.innerHTML = `
+      <td>${dt.toLocaleDateString(undefined, { weekday: 'short' })} ${+dd}</td>
+      <td>${burned == null ? '<span class="none">—</span>' : r0(burned).toLocaleString()}</td>
+      <td>${hasFood ? r0(t.kcal).toLocaleString() : '<span class="none">—</span>'}</td>
+      <td>${bal == null ? '<span class="none">—</span>'
+            : `<span class="${bal > 0 ? 'good' : bal < 0 ? 'warn' : ''}">${signed(bal)}</span>`}</td>
+      <td>${hasFood ? r0(t.p) + '<span class="sm">of ' + state.targets.p + '</span>'
+                    : '<span class="none">—</span>'}</td>`;
+    body.appendChild(tr);
+  });
+
+  const avgB = nB ? sumB / nB : null;
+  const avgE = nE ? sumE / nE : null;
+  const avgP = nE ? sumP / nE : null;
+  const avgBal = (avgB != null && avgE != null) ? avgE - avgB : null;
+
+  const tr = document.createElement('tr');
+  tr.className = 'avg';
+  tr.innerHTML = `
+    <td>Average</td>
+    <td>${avgB == null ? '<span class="none">—</span>' : r0(avgB).toLocaleString()}</td>
+    <td>${avgE == null ? '<span class="none">—</span>' : r0(avgE).toLocaleString()}</td>
+    <td>${avgBal == null ? '<span class="none">—</span>'
+          : `<span class="${avgBal > 0 ? 'good' : 'warn'}">${signed(avgBal)}</span>`}</td>
+    <td>${avgP == null ? '<span class="none">—</span>' : r0(avgP)}</td>`;
+  body.appendChild(tr);
+
+  const setTop = (id, v, cls) => {
+    const el = $(id);
+    el.textContent = v == null ? '—' : (cls ? signed(v) : r0(v).toLocaleString());
+    el.className = v == null ? 'none' : (cls ? (v > 0 ? 'good' : v < 0 ? 'warn' : '') : '');
+  };
+  setTop('#wkBurn', avgB, false);
+  setTop('#wkEat', avgE, false);
+  setTop('#wkBal', avgBal, true);
+
+  $('#weekNote').textContent = nB === 0 && nE === 0
+    ? 'Nothing logged this week yet.'
+    : `Averages cover the days with data — ${nB} day${nB === 1 ? '' : 's'} of burn, ${nE} of food. Days with no entry are left out rather than counted as zero.`;
+}
+
 function renderQuick() {
   const top = usageStats().sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 8);
   const wrap = $('#quickWrap'), box = $('#quickChips');
@@ -344,7 +707,7 @@ function renderEntries() {
     btn.innerHTML = `
       <div class="info">
         <div class="nm">${escapeHtml(e.n)}</div>
-        <div class="sub">${r0(e.g)} g · P ${gfmt(m.p)} · C ${gfmt(m.c)} · F ${gfmt(m.f)}</div>
+        <div class="sub">${minToHHMM(entryMin(e))} · ${r0(e.g)} g · P ${gfmt(m.p)} · C ${gfmt(m.c)} · F ${gfmt(m.f)}</div>
       </div>
       <div class="kc"><b>${r0(m.kcal)}</b><span>kcal</span></div>`;
     btn.onclick = () => openPortion({ mode: 'edit', entry: e });
@@ -372,6 +735,7 @@ function addEntry(food, grams) {
     id: uid(), d: state.date, fid: food.id, n: food.n, g: Number(grams),
     k100: Number(food.kcal), p100: Number(food.p), c100: Number(food.c), f100: Number(food.f),
     m: micro,
+    tm: nowMinutes(),        // when it was eaten; editable in the portion sheet
     ts: Date.now(),
   };
   state.entries.push(e);
@@ -437,6 +801,8 @@ function openPortion({ mode, food, entry, grams }) {
     units.appendChild(b);
   });
 
+  $('#psTime').value = minToHHMM(entry ? entryMin(entry) : nowMinutes());
+
   $('#psSave').textContent = mode === 'edit' ? 'Save changes' : 'Add to log';
   $('#psDelete').classList.toggle('hidden', mode !== 'edit');
   setExpanded($('#psMoreBtn'), $('#psMicroWrap'), psMicroOpen);
@@ -481,12 +847,23 @@ function previewPortion() {
       : `For ${r0(grams)} g. “—” means the value isn’t on file — add it in the Foods tab.`;
 }
 
+/* "HH:MM" -> minutes past midnight, or null if the field is unusable. */
+function parseTimeInput(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '').trim());
+  if (!m) return null;
+  const h = +m[1], mi = +m[2];
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
 function commitPortion() {
   const grams = parseFloat($('#psGrams').value);
   if (!(grams > 0)) { toast('Enter grams first'); return; }
+  const tm = parseTimeInput($('#psTime').value);
 
   if (ps.mode === 'edit' && ps.entry) {
     ps.entry.g = grams;
+    if (tm != null) ps.entry.tm = tm;
     /* Entries logged before this version have no micro snapshot. Adopt the
        food's current values now that you're editing it anyway, so the day's
        breakdown stops counting it as unknown. */
@@ -498,7 +875,8 @@ function commitPortion() {
     saveEntries();
     toast('Updated');
   } else {
-    addEntry(ps.food, grams);
+    const e = addEntry(ps.food, grams);
+    if (tm != null && tm !== e.tm) { e.tm = tm; saveEntries(); }
     toast(`${ps.food.n} added`, 'Undo', undoLastAdd);
   }
   closeSheets();
@@ -1142,7 +1520,9 @@ function coerceEstimate(raw) {
 
 /* ------------------------------ the call ------------------------------ */
 
-async function aiRequest(description, { timeout = 30000 } = {}) {
+/* Shared transport for both AI features: nutrition estimates and meal
+   suggestions. Returns the raw assistant text plus the model that answered. */
+async function aiChat(system, user, { timeout = 30000, json = false, maxTokens = 700, temperature = 0.2 } = {}) {
   const key = (state.ai.key || '').trim();
   if (!key) { const e = new Error('nokey'); e.code = 'nokey'; throw e; }
   const model = (state.ai.model || '').trim() || AI_DEFAULT_MODEL;
@@ -1150,39 +1530,35 @@ async function aiRequest(description, { timeout = 30000 } = {}) {
   const body = {
     model,
     messages: [
-      { role: 'system', content: AI_SYSTEM },
-      { role: 'user', content: 'Food: ' + description },
+      { role: 'system', content: system },
+      { role: 'user', content: user },
     ],
-    temperature: 0.2,
-    max_tokens: 700,
+    temperature,
+    max_tokens: maxTokens,
   };
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
 
-  const send = async withFormat => {
-    const payload = withFormat
+  const send = withFormat => fetch(AI_ENDPOINT, {
+    method: 'POST',
+    signal: ctrl.signal,
+    headers: {
+      'Authorization': 'Bearer ' + key,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': location.origin,
+      'X-Title': 'Macros',
+    },
+    body: JSON.stringify(withFormat
       ? Object.assign({}, body, { response_format: { type: 'json_object' } })
-      : body;
-    const res = await fetch(AI_ENDPOINT, {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: {
-        'Authorization': 'Bearer ' + key,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': location.origin,
-        'X-Title': 'Macros',
-      },
-      body: JSON.stringify(payload),
-    });
-    return res;
-  };
+      : body),
+  });
 
   try {
     /* Not every model on OpenRouter accepts response_format, so fall back
-       to plain prompting rather than failing the whole estimate. */
-    let res = await send(true);
-    if (res.status === 400 || res.status === 422) res = await send(false);
+       to plain prompting rather than failing the whole request. */
+    let res = await send(json);
+    if (json && (res.status === 400 || res.status === 422)) res = await send(false);
 
     if (!res.ok) {
       let detail = '';
@@ -1199,10 +1575,8 @@ async function aiRequest(description, { timeout = 30000 } = {}) {
     const data = await res.json();
     const text = data && data.choices && data.choices[0]
       && data.choices[0].message && data.choices[0].message.content;
-    const est = coerceEstimate(extractJson(text));
-    if (!est) { const e = new Error('unparsable'); e.code = 'parse'; e.raw = text; throw e; }
-    est.model = (data.model || model);
-    return est;
+    aiChat.lastModel = data.model || model;
+    return text;
   } catch (err) {
     if (err.name === 'AbortError') { const e = new Error('timeout'); e.code = 'timeout'; throw e; }
     if (!err.code) err.code = /Failed to fetch|NetworkError|Load failed/i.test(err.message || '') ? 'network' : 'unknown';
@@ -1210,6 +1584,14 @@ async function aiRequest(description, { timeout = 30000 } = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function aiRequest(description, { timeout = 30000 } = {}) {
+  const text = await aiChat(AI_SYSTEM, 'Food: ' + description, { timeout, json: true, maxTokens: 700 });
+  const est = coerceEstimate(extractJson(text));
+  if (!est) { const e = new Error('unparsable'); e.code = 'parse'; e.raw = text; throw e; }
+  est.model = aiChat.lastModel;
+  return est;
 }
 
 function aiErrorText(err) {
@@ -1297,6 +1679,212 @@ function openEstimateConfirm(est, desc) {
 }
 
 /* =====================================================================
+   BURN CHECK-IN SHEET
+   ===================================================================== */
+
+let bs = { d: null, cp: null };
+
+function openCheckin(d, cpKey) {
+  const cp = CHECKPOINTS.find(c => c.k === cpKey);
+  bs = { d, cp: cpKey };
+  const rec = burnAt(d, cpKey);
+
+  $('#bsTitle').textContent = `${cp.label} check-in`;
+  $('#bsCum').value = rec ? rec.cum : '';
+  $('#bsWarn').classList.add('hidden');
+  $('#bsDelete').classList.toggle('hidden', !rec);
+
+  /* Show what the entered figure will mean, so a wrong number is obvious. */
+  const logged = loggedCheckpoints(d);
+  const before = logged.filter(l => l.cp.min < cp.min).pop();
+  $('#bsContext').textContent = before
+    ? `Your ${before.cp.label} reading was ${before.cum.toLocaleString()} kcal — this segment is the difference.`
+    : 'No earlier check-in today, so this reading is the whole stretch since midnight.';
+
+  showSheet('#burnSheet');
+  setTimeout(() => $('#bsCum').focus(), 80);
+}
+
+function commitCheckin() {
+  const v = parseFloat($('#bsCum').value);
+  if (!(v >= 0)) { toast('Enter the cumulative total from Apple Health'); return; }
+  if (v > 20000) { toast('That looks too high — check the figure'); return; }
+
+  const conflict = checkinConflict(bs.d, bs.cp, v);
+  if (conflict) {
+    const w = $('#bsWarn');
+    w.innerHTML = '<b>Check that number</b>' + escapeHtml(conflict);
+    w.classList.remove('hidden');
+    return;
+  }
+
+  saveCheckin(bs.d, bs.cp, v);
+  closeSheets();
+  renderAll();
+  const cp = CHECKPOINTS.find(c => c.k === bs.cp);
+  toast(`${cp.label} check-in saved`);
+  requestAdvice(bs.d, bs.cp);
+}
+
+function deleteCheckin() {
+  const rec = burnAt(bs.d, bs.cp);
+  if (!rec) return;
+  if (!confirm('Delete this check-in?\n\nThe surrounding segments will merge.')) return;
+  state.burn = state.burn.filter(b => b.id !== rec.id);
+  saveBurn();
+  closeSheets();
+  renderAll();
+  toast('Check-in deleted', 'Undo', () => {
+    state.burn.push(rec); saveBurn(); renderAll();
+  });
+}
+
+/* =====================================================================
+   AI MEAL SUGGESTION  (fires after a check-in, cached per checkpoint)
+   ===================================================================== */
+
+const ADVICE_SYSTEM = [
+  'You are a practical nutrition coach for one person who is bulking: gaining weight and',
+  'muscle on a calorie surplus. They eat South Indian and Saudi/Gulf food, halal, and work',
+  '12-hour shifts.',
+  '',
+  'You will be given their targets, what they have eaten today, their calories burned, and',
+  'a list of foods from their personal library with per-100 g values.',
+  '',
+  'Reply with ONE piece of advice, 1 to 2 short sentences, maximum 45 words.',
+  'Rules:',
+  '- Name specific foods FROM THE PROVIDED LIBRARY ONLY, with a realistic gram amount',
+  '  or household portion. Never invent a food that is not on the list.',
+  '- Lead with the gap that matters most: remaining protein first, then remaining calories.',
+  '- If they are already over both targets, say so plainly and suggest stopping or something light.',
+  '- Plain sentences. No preamble, no bullet points, no markdown, no emoji, no sign-off.',
+].join('\n');
+
+/* A compact library the model can actually ground on: my own foods first,
+   then whatever I log most, then the rest — capped to keep the prompt small. */
+function libraryForPrompt(limit = 55) {
+  const counts = new Map(usageStats().map(s => [s.fid, s.count]));
+  const scored = allFoods().map(f => ({
+    f,
+    rank: (f.src === 'user' ? 2000 : 0) + (counts.get(f.id) || 0) * 100 + (f.p || 0),
+  }));
+  scored.sort((a, b) => b.rank - a.rank);
+  return scored.slice(0, limit)
+    .map(({ f }) => `${f.n}: ${r0(f.kcal)} kcal, ${gfmt(f.p)} g protein per 100 g`)
+    .join('\n');
+}
+
+function advicePrompt(d, cpKey) {
+  const cp = CHECKPOINTS.find(c => c.k === cpKey);
+  const t = totalsFor(d);
+  const burned = burnDayTotal(d);
+  const rows = entriesFor(d);
+
+  const eatenList = rows.length
+    ? rows.map(e => `- ${e.n}, ${r0(e.g)} g (${r0(macrosOf(e).kcal)} kcal, ${gfmt(macrosOf(e).p)} g protein) at ${minToHHMM(entryMin(e))}`).join('\n')
+    : '- nothing logged yet';
+
+  return [
+    `Time now: ${cp ? cp.label : minToPretty(nowMinutes())}.`,
+    `Daily targets: ${state.targets.kcal} kcal, ${state.targets.p} g protein.`,
+    `Eaten so far: ${r0(t.kcal)} kcal, ${gfmt(t.p)} g protein.`,
+    `Remaining: ${r0(state.targets.kcal - t.kcal)} kcal, ${gfmt(state.targets.p - t.p)} g protein.`,
+    burned != null
+      ? `Burned so far (Apple Health): ${r0(burned)} kcal. Balance eaten minus burned: ${signed(t.kcal - burned)} kcal.`
+      : 'Burned so far: not recorded yet.',
+    '',
+    'Eaten today:',
+    eatenList,
+    '',
+    'Food library (per 100 g):',
+    libraryForPrompt(),
+  ].join('\n');
+}
+
+const adviceKey = (d, cpKey) => `${d}:${cpKey}`;
+let adviceInFlight = null;
+
+/* Auto-fires on save, but only once per checkpoint — a cached suggestion is
+   reused on re-render so re-opening the app never re-bills a call. */
+async function requestAdvice(d, cpKey, { force = false } = {}) {
+  const key = adviceKey(d, cpKey);
+  if (!force && state.advice[key]) { renderAdvice(); return; }
+  if (!(state.ai.key || '').trim()) { renderAdvice(); return; }
+  if (adviceInFlight === key) return;
+
+  adviceInFlight = key;
+  adviceLoading = true;
+  adviceError = '';
+  adviceErrorFor = key;
+  renderAdvice();
+
+  try {
+    const text = await aiChat(ADVICE_SYSTEM, advicePrompt(d, cpKey), { maxTokens: 160, temperature: 0.4 });
+    const clean = String(text || '').replace(/\s+/g, ' ').replace(/^["'\s-]+|["'\s]+$/g, '').trim();
+    if (!clean) throw Object.assign(new Error('empty'), { code: 'parse' });
+    state.advice[key] = { text: clean, model: state.ai.model, ts: Date.now(), cp: cpKey };
+    saveAdvice();
+    adviceError = '';
+  } catch (err) {
+    adviceError = aiErrorText(err);
+  } finally {
+    adviceLoading = false;
+    adviceInFlight = null;
+    renderAdvice();
+  }
+}
+
+let adviceLoading = false, adviceError = '', adviceErrorFor = '';
+
+/* Show the suggestion tied to the most recent check-in of the shown day. */
+function currentAdviceSlot(d) {
+  const logged = loggedCheckpoints(d);
+  return logged.length ? logged[logged.length - 1].cp.k : null;
+}
+
+function renderAdvice() {
+  const box = $('#adviceBox');
+  const d = state.date;
+  const slot = currentAdviceSlot(d);
+
+  if (!slot) { box.classList.add('hidden'); return; }
+
+  const cached = state.advice[adviceKey(d, slot)];
+  const cp = CHECKPOINTS.find(c => c.k === slot);
+  const err = adviceErrorFor === adviceKey(d, slot) ? adviceError : '';
+  box.classList.remove('hidden');
+  box.classList.toggle('working', adviceLoading);
+
+  if (adviceLoading) {
+    $('#adviceText').textContent = 'Working out what to eat next…';
+    $('#adviceMeta').textContent = '';
+    $('#adviceAgain').classList.add('hidden');
+    return;
+  }
+  $('#adviceAgain').classList.remove('hidden');
+
+  if (cached) {
+    $('#adviceText').textContent = cached.text;
+    /* A failed retry keeps the old suggestion, but must say the retry failed —
+       otherwise the button looks like it did nothing. */
+    $('#adviceMeta').textContent = err
+      ? 'Retry failed — ' + err
+      : `after ${cp ? cp.label : 'check-in'} · ${cached.model || ''}`;
+  } else if (err) {
+    $('#adviceText').textContent = err;
+    $('#adviceMeta').textContent = '';
+  } else if (!(state.ai.key || '').trim()) {
+    $('#adviceText').textContent = 'Add an OpenRouter key in Settings and suggestions will appear here after each check-in.';
+    $('#adviceMeta').textContent = '';
+    $('#adviceAgain').classList.add('hidden');
+  } else {
+    $('#adviceText').textContent = 'No suggestion for this check-in yet.';
+    $('#adviceMeta').textContent = '';
+  }
+  $('#adviceAgain').textContent = cached ? 'Suggest again' : 'Suggest';
+}
+
+/* =====================================================================
    FOODS TAB
    ===================================================================== */
 
@@ -1379,9 +1967,10 @@ function exportBackup() {
   /* The API key is deliberately left out — a backup file often gets emailed
      or synced, and a leaked key is someone else spending your credit. */
   const payload = {
-    app: 'macros', version: 3, exported: new Date().toISOString(),
+    app: 'macros', version: 4, exported: new Date().toISOString(),
     targets: state.targets, foods: state.custom, entries: state.entries,
     water: state.water, names: state.names,
+    burn: state.burn, advice: state.advice,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -1409,12 +1998,14 @@ function importBackup(file) {
       state.custom  = byId(state.custom, d.foods);
       state.entries = byId(state.entries, d.entries);
       state.water   = byId(state.water, d.water);
+      state.burn    = byId(state.burn, d.burn);
       state.names   = Object.assign({}, state.names, d.names || {});
+      state.advice  = Object.assign({}, state.advice, d.advice || {});
       if (d.targets) state.targets = Object.assign({}, DEFAULT_TARGETS, d.targets);
       /* Model preference travels; the key never does, so keep the local one. */
       if (d.ai && d.ai.model) state.ai.model = d.ai.model;
 
-      saveFoods(); saveEntries(); saveWater(); saveNames(); saveTargets(); saveAi();
+      saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice(); saveTargets(); saveAi();
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {
@@ -1468,11 +2059,14 @@ function toast(msg, actionLabel, action) {
 }
 
 function showView(name) {
+  currentView = name;
   $$('.view').forEach(v => v.classList.add('hidden'));
   $('#view-' + name).classList.remove('hidden');
   $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   window.scrollTo(0, 0);
 
+  renderDate();
+  if (name === 'week') renderWeek();
   if (name === 'foods') renderLibrary();
   if (name === 'settings') renderSettings();
   if (name === 'add') { renderRecent(); setTimeout(() => $('#searchInput').focus(), 60); }
@@ -1488,9 +2082,15 @@ function init() {
 
   $$('.tab').forEach(t => t.onclick = () => showView(t.dataset.view));
 
-  /* date nav */
-  $('#prevDay').onclick = () => { state.date = shiftDate(state.date, -1); renderAll(); };
-  $('#nextDay').onclick = () => { state.date = shiftDate(state.date, 1); renderAll(); };
+  /* date nav — steps by week when the Week view is showing */
+  $('#prevDay').onclick = () => {
+    if (currentView === 'week') { state.weekStart = shiftDate(state.weekStart, -7); renderDate(); renderWeek(); }
+    else { state.date = shiftDate(state.date, -1); renderAll(); }
+  };
+  $('#nextDay').onclick = () => {
+    if (currentView === 'week') { state.weekStart = shiftDate(state.weekStart, 7); renderDate(); renderWeek(); }
+    else { state.date = shiftDate(state.date, 1); renderAll(); }
+  };
   $('#datePicker').onchange = e => { if (e.target.value) { state.date = e.target.value; renderAll(); } };
   $('.datewrap').onclick = () => { const d = $('#datePicker'); d.showPicker ? d.showPicker() : d.click(); };
 
@@ -1498,6 +2098,21 @@ function init() {
   $('#toggleTotals').onclick = () => {
     totalsOpen = !totalsOpen;
     setExpanded($('#toggleTotals'), $('#totalsMicros'), totalsOpen);
+  };
+
+  /* burn check-ins */
+  $('#bsSave').onclick = commitCheckin;
+  $('#bsDelete').onclick = deleteCheckin;
+  $('#bsCancel').onclick = closeSheets;
+  $('#bsCum').oninput = () => $('#bsWarn').classList.add('hidden');
+  $('#bsCum').onkeydown = e => { if (e.key === 'Enter') commitCheckin(); };
+  $('#bannerDismiss').onclick = () => {
+    pendingCheckpoints().forEach(cp => bannerDismissed.add(cp.k));
+    renderBanner();
+  };
+  $('#adviceAgain').onclick = () => {
+    const slot = currentAdviceSlot(state.date);
+    if (slot) requestAdvice(state.date, slot, { force: true });
   };
 
   /* water */
@@ -1592,10 +2207,10 @@ function init() {
   $('#importBtn').onclick = () => $('#importFile').click();
   $('#importFile').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };
   $('#wipeBtn').onclick = () => {
-    if (!confirm('Erase every log entry, custom food, water record and target on this device?')) return;
+    if (!confirm('Erase every log entry, custom food, water record, burn check-in and target on this device?')) return;
     if (!confirm('Really erase everything? Export a backup first if you want to keep it.')) return;
     Object.values(KEY).forEach(k => localStorage.removeItem(k));
-    load(); state.date = todayStr();
+    load(); state.date = todayStr(); state.weekStart = mondayOf(state.date);
     renderAll(); renderLibrary(); renderSettings();
     toast('All data erased');
   };
@@ -1605,7 +2220,13 @@ function init() {
   /* Roll the log over to the real today if the app sat open overnight. */
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { stopScanner(); return; }
-    if (state.date < todayStr()) { state.date = todayStr(); renderAll(); }
+    /* Coming back to the app is the moment to re-check the checkpoints. */
+    if (state.date < todayStr()) {
+      state.date = todayStr();
+      state.weekStart = mondayOf(state.date);
+      bannerDismissed.clear();
+    }
+    renderAll();
   });
 
   /* Offline support on the real host only. On localhost the cache-first

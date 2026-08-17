@@ -34,6 +34,15 @@
   <!-- ============================ TODAY ============================ -->
   <section class="view" id="view-today">
 
+    <div class="banner hidden" id="cpBanner">
+      <div class="bannerhead">
+        <b id="bannerTitle">Log burned calories?</b>
+        <button class="bannerx" id="bannerDismiss" aria-label="Dismiss">&times;</button>
+      </div>
+      <p class="bannerhint">Enter the <b>cumulative</b> total Apple Health showed at that time — not the difference.</p>
+      <div id="bannerRows"></div>
+    </div>
+
     <div class="card summary">
       <div class="kcalrow">
         <div>
@@ -94,6 +103,34 @@
       <div class="chips waterlog" id="waterLog"></div>
     </div>
 
+    <h2 class="sect">Burn &amp; balance <small>tap a check-in to log or edit</small></h2>
+    <div class="card burn">
+      <div class="burntop">
+        <div><b id="burnDay">—</b><span>burned</span></div>
+        <div><b id="eatDay">0</b><span>eaten</span></div>
+        <div><b id="balDay">—</b><span>balance</span></div>
+      </div>
+
+      <div class="segwrap">
+        <table class="segtable">
+          <thead><tr><th>Segment</th><th>Burned</th><th>Eaten</th><th>Balance</th></tr></thead>
+          <tbody id="segBody"></tbody>
+        </table>
+      </div>
+      <p class="micronote" id="burnNote"></p>
+
+      <div class="chips cpchips" id="cpChips"></div>
+
+      <div class="advice hidden" id="adviceBox">
+        <b><span class="sparkle" aria-hidden="true">✦</span> Suggestion</b>
+        <p id="adviceText"></p>
+        <div class="advicefoot">
+          <span id="adviceMeta"></span>
+          <button id="adviceAgain">Suggest again</button>
+        </div>
+      </div>
+    </div>
+
     <div id="quickWrap" class="quickwrap hidden">
       <h2 class="sect">Quick add <small>tap to log your usual portion</small></h2>
       <div class="chips" id="quickChips"></div>
@@ -139,6 +176,23 @@
         <span class="sparkle" aria-hidden="true">✦</span> Estimate “<span id="aiTerm"></span>” with AI
       </button>
     </div>
+  </section>
+
+  <!-- ============================ WEEK ============================ -->
+  <section class="view hidden" id="view-week">
+    <div class="burntop weektop">
+      <div><b id="wkBurn">—</b><span>avg burned</span></div>
+      <div><b id="wkEat">0</b><span>avg eaten</span></div>
+      <div><b id="wkBal">—</b><span>avg balance</span></div>
+    </div>
+
+    <div class="segwrap">
+      <table class="segtable weektable">
+        <thead><tr><th>Day</th><th>Burned</th><th>Eaten</th><th>Balance</th><th>Protein</th></tr></thead>
+        <tbody id="weekBody"></tbody>
+      </table>
+    </div>
+    <p class="micronote" id="weekNote"></p>
   </section>
 
   <!-- ============================ FOODS ============================ -->
@@ -202,6 +256,7 @@
 <nav class="tabbar">
   <button class="tab active" data-view="today"><span class="ic">&#9679;</span>Today</button>
   <button class="tab" data-view="add"><span class="ic">&#43;</span>Add</button>
+  <button class="tab" data-view="week"><span class="ic">&#9636;</span>Week</button>
   <button class="tab" data-view="foods"><span class="ic">&#9776;</span>Foods</button>
   <button class="tab" data-view="settings"><span class="ic">&#9881;</span>Settings</button>
 </nav>
@@ -234,6 +289,11 @@
 
   <p class="psday" id="psDay"></p>
   <div class="chips" id="psUnits"></div>
+
+  <label class="timerow">
+    <span>Eaten at</span>
+    <input type="time" id="psTime" step="60">
+  </label>
 
   <div class="macrogrid" id="psPreview">
     <div><b id="pvK">0</b><span>kcal</span></div>
@@ -318,6 +378,30 @@
   <div class="sheetbtns">
     <button class="wide ghost" id="scanManual">Enter the number instead</button>
     <button class="wide ghost" id="scanCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ================= BURN CHECK-IN SHEET ================= -->
+<div class="sheet hidden" id="burnSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <h3 id="bsTitle">8:00 AM check-in</h3>
+  <p class="hint">Open Apple Health and type the <b>total active calories burned so far today</b>, exactly as
+    shown. The app works out each segment for you.</p>
+
+  <div class="gramrow">
+    <label class="graminput">
+      <input type="number" inputmode="numeric" id="bsCum" min="0" step="10" placeholder="0">
+      <span>kcal</span>
+    </label>
+  </div>
+
+  <p class="psday" id="bsContext"></p>
+  <div class="scanerror hidden" id="bsWarn"></div>
+
+  <div class="sheetbtns">
+    <button class="wide" id="bsSave">Save check-in</button>
+    <button class="wide danger ghost hidden" id="bsDelete">Delete this check-in</button>
+    <button class="wide ghost" id="bsCancel">Cancel</button>
   </div>
 </div>
 
