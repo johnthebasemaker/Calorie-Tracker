@@ -67,22 +67,20 @@ Open Food Facts for the English fields first (`product_name_en`, then
 and offers **Rename** — the name you type is stored against that barcode, so
 every future scan of that product uses your name.
 
-**Burn & balance.** Four fixed check-ins a day — 8:00 AM, 12:00 PM, 5:00 PM,
-10:30 PM. At each one you type the **cumulative** total Apple Health is showing;
-you never work out a difference yourself.
+**Burn & balance.** Log a reading whenever you like — you type the **cumulative**
+total Apple Health is showing and never work out a difference yourself.
 
-Apple Health resets at midnight, so the 8am reading *is* the midnight-to-8am
-segment with nothing subtracted. Every later segment is that reading minus the
-one before it. Balance is eaten minus burned — a surplus shows green because
-that's what builds weight on a bulk, a shortfall shows amber.
+Apple Health resets at midnight, so your first reading of the day *is* the
+midnight-to-then segment with nothing subtracted. Every later segment is that
+reading minus the one before it. Balance is eaten minus burned — a surplus shows
+green because that's what builds weight on a bulk, a shortfall shows amber.
 
-Miss a check-in and the two windows merge into one wider row, labelled with what
-was missed. Because the readings are cumulative, the later one still contains
-that burn, so the merged figure is exact rather than estimated — nothing is lost
-and the segments still sum to the day total. Food eaten after your last check-in
-gets its own row with burn shown as "—", since there's no reading to compare it
-against yet. A reading that would go *down* is refused with an explanation,
-because a cumulative total that falls is a typo.
+Segments are labelled with the real clock times you logged at, so a wide window
+is obvious without a footnote. Because readings are cumulative, a wide window is
+exact rather than estimated — nothing is lost, and the segments still sum to the
+day total. A reading that would go *down* is refused with an explanation, since a
+cumulative total that falls is a typo; if a backup ever imports a pair out of
+order, that segment is flagged rather than shown as negative burn.
 
 **Meal times.** Every log entry carries the time you ate, pre-filled with the
 current time and editable in the portion sheet. Log breakfast at 2pm because you
@@ -91,28 +89,43 @@ Entries logged before this existed fall back to when they were saved.
 
 **Check-in reminders.** There's no server, so there are no push notifications —
 your iPhone Reminders do the nudging. When you open the app it checks the clock
-against the four times and shows a dismissible banner for every checkpoint that
-has passed unlogged, each with its own input. Open it at 3pm having missed 8am
-and 12pm and you get both rows at once. Dismissing lasts for the session, so the
-nudge returns next time you open the app rather than vanishing for the day.
+against the four times and, if any have gone by since your last reading, shows
+one dismissible banner asking for your current total. Open it at 1pm having
+missed 8am and 12pm and you still get a single prompt, not two. Dismissing lasts
+for the session, so the nudge returns next time you open the app.
 
-**Week.** Its own tab. The same topbar arrows step by week instead of by day.
-Per day: burned, eaten, balance and protein against target, plus averages that
-cover only the days with data — a day you logged nothing is left out rather than
-dragged down as a zero.
+**Week.** Its own tab; the calendar and **This week** button in the header move
+it. Per day: burned, eaten, balance and protein against target, plus averages
+that cover only the days with data — a day you logged nothing is left out rather
+than dragged down as a zero. With burn tracking off the burn columns drop away
+and the weekly food view stays.
 
-**Meal suggestions.** Saving a check-in automatically asks the model what to eat
+**Meal suggestions.** Saving a reading automatically asks the model what to eat
 next, given your remaining calories and protein, everything logged so far with
 times, your burn/eaten balance, and 55 foods from your own library with their
 per-100 g values. It's told to name only foods from that list, so you get "add
 150 g chicken breast and 3 idli with sambar" rather than generic advice.
 
 Read-only — it never saves anything, so there's no confirm step. Each suggestion
-is cached against its checkpoint, so re-opening the app doesn't spend another
-call; **Suggest again** forces a fresh one. Four calls a day sits inside
+is cached against the reading that triggered it, so re-opening the app doesn't
+spend another call; **Suggest again** forces a fresh one. Four calls a day sits inside
 OpenRouter's limits, but free models share a daily cap with barcode estimates —
 if a retry gets throttled the previous suggestion stays on screen and the footer
 says the retry failed.
+
+**Check-ins are flexible.** 8:00, 12:00, 17:00 and 22:30 are reminder triggers,
+not slots you must fill one by one. If several have gone by, you get **one**
+prompt — enter whatever your fitness app shows right now. The reading is stamped
+with the real time you logged it (editable), so logging at 13:40 records 13:40,
+and the segment maths uses that boundary rather than a fictional 12:00 one. Gaps
+merge into one wider window, which is exact because the readings are cumulative.
+
+**Closing off a day.** Burn readings stop when you stop logging, so food eaten
+after the last one shows "—". On the first open of a new day you're asked for
+yesterday's final total; enter it and the stretch from your last reading to
+midnight fills in. Skip it and the day stays open — the Week view puts a
+**finish** button next to any unclosed day so you can back-fill it whenever you
+next check your Health app.
 
 **AI estimation.** When a barcode or a text search finds nothing, you get two
 options side by side: **Enter it manually** or **✦ Estimate with AI**. The AI path
@@ -137,11 +150,30 @@ repo, and it is deliberately **excluded from backup exports** — a backup file
 tends to get emailed or synced around, and a leaked key is someone else spending
 your credit. The model name does travel in the backup; the key never does.
 
+**If a suggestion fails**, the card shows the raw model reply rather than a
+generic error, and the full response object is logged to the console. Reasoning
+models (`gpt-oss`, and most `:free` models worth using) spend tokens thinking
+before they answer, so the request sends `reasoning: {effort:'low'}` and a token
+budget with room for both; if the budget still runs out, the answer is recovered
+from the reasoning trace. Replies wrapped in markdown fences, prose, or JSON are
+all unwrapped rather than rejected.
+
 No proxy is needed. OpenRouter returns `access-control-allow-origin: *`, so the
 browser calls it directly from the Pages origin. (For reference, Anthropic also
 works browser-direct via its `anthropic-dangerous-direct-browser-access` header,
 and OpenAI echoes the requesting origin — but Gemini's endpoint rejected the
 preflight, so it would need a proxy.)
+
+**Sharing it.** Both extras are **off by default**, so anyone opening the link
+gets a plain food and water tracker. Settings → Features turns on **Calorie
+burned tracking** and **AI summary** independently. Switching one off only hides
+its UI — every reading, suggestion and key stays put and reappears when you
+switch it back on. A browser that already had readings or a key keeps them on,
+so an existing install is never silently stripped.
+
+**Picking a date.** The header is a calendar icon, the date, and a **Today**
+button — no step arrows, since a stray tap on those was how entries ended up on
+the wrong day. The calendar marks every day that has food logged with a dot.
 
 **Water.** A card under the day's macros: `+250 ml`, `+500 ml`, `+1 L` for the
 usual glass and bottle sizes, plus a field for anything else. Target defaults to

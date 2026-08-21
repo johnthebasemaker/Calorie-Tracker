@@ -21,12 +21,11 @@
 <body>
 
 <header class="topbar">
-  <button class="datenav" id="prevDay" aria-label="Previous day">&#8249;</button>
-  <div class="datewrap">
-    <span id="dateLabel">Today</span>
-    <input type="date" id="datePicker" aria-label="Pick date">
-  </div>
-  <button class="datenav" id="nextDay" aria-label="Next day">&#8250;</button>
+  <button class="datenav calbtn" id="openCal" aria-label="Pick a date">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+  </button>
+  <div class="datewrap"><span id="dateLabel">Today</span></div>
+  <button class="todaybtn" id="jumpToday">Today</button>
 </header>
 
 <main id="main">
@@ -36,11 +35,29 @@
 
     <div class="banner hidden" id="cpBanner">
       <div class="bannerhead">
-        <b id="bannerTitle">Log burned calories?</b>
+        <b id="bannerTitle">Log your current burned total</b>
         <button class="bannerx" id="bannerDismiss" aria-label="Dismiss">&times;</button>
       </div>
-      <p class="bannerhint">Enter the <b>cumulative</b> total Apple Health showed at that time — not the difference.</p>
-      <div id="bannerRows"></div>
+      <p class="bannerhint" id="bannerHint">Enter the <b>cumulative</b> total your fitness app shows right now — not the difference.</p>
+      <div class="checkinrow">
+        <input type="number" inputmode="numeric" id="bannerCum" placeholder="kcal burned" min="0" step="1">
+        <input type="time" id="bannerTime" step="60" aria-label="Time of reading">
+        <button id="bannerSave">Log</button>
+      </div>
+      <p class="bannererr hidden" id="bannerErr"></p>
+    </div>
+
+    <div class="banner hidden" id="finalBanner">
+      <div class="bannerhead">
+        <b id="finalTitle">Finish yesterday</b>
+        <button class="bannerx" id="finalDismiss" aria-label="Dismiss">&times;</button>
+      </div>
+      <p class="bannerhint" id="finalHint">Enter the final total burned for that day, as your fitness app shows it now.</p>
+      <div class="checkinrow">
+        <input type="number" inputmode="numeric" id="finalCum" placeholder="final kcal burned" min="0" step="1">
+        <button id="finalSave">Save</button>
+      </div>
+      <p class="bannererr hidden" id="finalErr"></p>
     </div>
 
     <div class="card summary">
@@ -103,7 +120,8 @@
       <div class="chips waterlog" id="waterLog"></div>
     </div>
 
-    <h2 class="sect">Burn &amp; balance <small>tap a check-in to log or edit</small></h2>
+    <div id="burnWrap">
+    <h2 class="sect">Burn &amp; balance <small>tap a reading to edit</small></h2>
     <div class="card burn">
       <div class="burntop">
         <div><b id="burnDay">—</b><span>burned</span></div>
@@ -121,14 +139,19 @@
 
       <div class="chips cpchips" id="cpChips"></div>
 
-      <div class="advice hidden" id="adviceBox">
-        <b><span class="sparkle" aria-hidden="true">✦</span> Suggestion</b>
-        <p id="adviceText"></p>
-        <div class="advicefoot">
-          <span id="adviceMeta"></span>
-          <button id="adviceAgain">Suggest again</button>
-        </div>
+      <button class="wide ghost checkinbtn" id="addCheckin">+ Log a burned-calorie reading</button>
+    </div>
+
+    <div class="advice hidden" id="adviceBox">
+      <b><span class="sparkle" aria-hidden="true">✦</span> Suggestion</b>
+      <p id="adviceText"></p>
+      <div class="advicefoot">
+        <span id="adviceMeta"></span>
+        <button id="adviceAgain">Suggest again</button>
       </div>
+      <button class="rawtoggle hidden" id="adviceRawBtn">Show raw model response</button>
+      <pre class="rawbox hidden" id="adviceRaw"></pre>
+    </div>
     </div>
 
     <div id="quickWrap" class="quickwrap hidden">
@@ -181,14 +204,14 @@
   <!-- ============================ WEEK ============================ -->
   <section class="view hidden" id="view-week">
     <div class="burntop weektop">
-      <div><b id="wkBurn">—</b><span>avg burned</span></div>
+      <div id="wkBurnCell"><b id="wkBurn">—</b><span>avg burned</span></div>
       <div><b id="wkEat">0</b><span>avg eaten</span></div>
-      <div><b id="wkBal">—</b><span>avg balance</span></div>
+      <div id="wkBalCell"><b id="wkBal">—</b><span>avg balance</span></div>
     </div>
 
     <div class="segwrap">
       <table class="segtable weektable">
-        <thead><tr><th>Day</th><th>Burned</th><th>Eaten</th><th>Balance</th><th>Protein</th></tr></thead>
+        <thead><tr><th>Day</th><th class="burncol">Burned</th><th>Eaten</th><th class="burncol">Balance</th><th>Protein</th></tr></thead>
         <tbody id="weekBody"></tbody>
       </table>
     </div>
@@ -208,6 +231,22 @@
 
   <!-- =========================== SETTINGS =========================== -->
   <section class="view hidden" id="view-settings">
+    <h2 class="sect">Features</h2>
+    <div class="card form">
+      <p class="hint">Both are off to begin with, so the app starts as a plain food and water tracker.
+        Turning one off only hides it — nothing you have logged is deleted, and it all comes back when you switch it on again.</p>
+
+      <label class="toggle">
+        <span><b>Calorie burned tracking</b><small>Check-ins, segment balance and the burn columns in Week. Needs a fitness tracker.</small></span>
+        <input type="checkbox" id="featBurn"><i></i>
+      </label>
+
+      <label class="toggle">
+        <span><b>AI summary</b><small>Meal suggestions and “Estimate with AI” for unknown foods. Needs your own OpenRouter key.</small></span>
+        <input type="checkbox" id="featAi"><i></i>
+      </label>
+    </div>
+
     <h2 class="sect">Daily targets</h2>
     <div class="card form">
       <label class="field"><span>Calories (kcal)</span><input type="number" inputmode="numeric" id="tKcal"></label>
@@ -220,6 +259,7 @@
       <button class="wide ghost" id="resetTargets">Reset to 2900 / 130 / 390 / 90 / 3500</button>
     </div>
 
+    <div id="aiSettingsWrap">
     <h2 class="sect">AI estimation</h2>
     <div class="card form">
       <p class="hint">Used only when a food isn’t in Open Food Facts or your library. Your key is stored
@@ -233,6 +273,7 @@
       <button class="wide" id="aiSaveKey">Save</button>
       <button class="wide ghost" id="aiTest">Test connection</button>
       <button class="wide ghost" id="aiClearKey">Remove key</button>
+    </div>
     </div>
 
     <h2 class="sect">Backup</h2>
@@ -395,12 +436,17 @@
     </label>
   </div>
 
+  <label class="timerow">
+    <span id="bsTimeLabel">Reading taken at</span>
+    <input type="time" id="bsTime" step="60">
+  </label>
+
   <p class="psday" id="bsContext"></p>
   <div class="scanerror hidden" id="bsWarn"></div>
 
   <div class="sheetbtns">
     <button class="wide" id="bsSave">Save check-in</button>
-    <button class="wide danger ghost hidden" id="bsDelete">Delete this check-in</button>
+    <button class="wide danger ghost hidden" id="bsDelete">Delete this reading</button>
     <button class="wide ghost" id="bsCancel">Cancel</button>
   </div>
 </div>
@@ -440,6 +486,23 @@
     <button class="wide" id="aiGo">Estimate</button>
     <button class="wide ghost" id="aiManualInstead">Enter it manually instead</button>
     <button class="wide ghost" id="aiCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ========================= CALENDAR ========================= -->
+<div class="sheet hidden" id="calSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <div class="calhead">
+    <button class="calnav" id="calPrev" aria-label="Previous month">&#8249;</button>
+    <h3 id="calTitle">Month</h3>
+    <button class="calnav" id="calNext" aria-label="Next month">&#8250;</button>
+  </div>
+  <div class="caldow" id="calDow"></div>
+  <div class="calgrid" id="calGrid"></div>
+  <p class="calkey"><i class="dot"></i> has food logged</p>
+  <div class="sheetbtns">
+    <button class="wide ghost" id="calToday">Jump to today</button>
+    <button class="wide ghost" id="calCancel">Cancel</button>
   </div>
 </div>
 

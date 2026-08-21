@@ -12,8 +12,14 @@ const KEY = {
   names: 'ct.names.v1',     // barcode -> the English name you gave it
   ai:    'ct.ai.v1',        // { key, model } — device-only, never exported
   burn:  'ct.burn.v1',      // cumulative Apple Health readings per checkpoint
-  advice:'ct.advice.v1',    // cached AI suggestion per date+checkpoint
+  advice:'ct.advice.v1',    // cached AI suggestion per date+reading
+  feat:  'ct.features.v1',  // { burn, ai } — both off for a fresh browser
 };
+
+/* Off by default, so a shared link opens as a plain food + water tracker.
+   Switching one off only hides its UI; the data stays and comes back. */
+const DEFAULT_FEATURES = { burn: false, ai: false };
+let features = { ...DEFAULT_FEATURES };
 
 /* Fixed daily check-in points, matching the meal rhythm. At each one you type
    the CUMULATIVE burn Apple Health is showing; segments are derived by
@@ -90,12 +96,22 @@ function load() {
   state.ai      = Object.assign({ key: '', model: AI_DEFAULT_MODEL }, readJSON(KEY.ai, {}));
   state.burn    = readJSON(KEY.burn, []);
   state.advice  = readJSON(KEY.advice, {});
+
+  /* Must come after burn and ai are read — it decides from them.
+     A browser that already has readings or a key was using these before the
+     toggles existed, so keep them on rather than hiding their data. */
+  const stored = readJSON(KEY.feat, null);
+  features = stored
+    ? Object.assign({}, DEFAULT_FEATURES, stored)
+    : { burn: state.burn.length > 0, ai: !!(state.ai.key || '').trim() };
+  if (!stored) saveFeatures();
 }
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
 const saveNames   = () => writeJSON(KEY.names, state.names);
 const saveAi      = () => writeJSON(KEY.ai, state.ai);
+const saveFeatures= () => writeJSON(KEY.feat, features);
 const saveBurn    = () => writeJSON(KEY.burn, state.burn);
 const saveAdvice  = () => writeJSON(KEY.advice, state.advice);
 const saveTargets = () => writeJSON(KEY.set, state.targets);
@@ -138,6 +154,14 @@ function minToPretty(m) {
   const h24 = Math.floor(m / 60), mm = m % 60;
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${String(mm).padStart(2, '0')} ${h24 < 12 ? 'AM' : 'PM'}`;
+}
+/* Compact clock label for tight table cells: 7:12am, 1:05pm, 12am. */
+function minToShort(m) {
+  if (m <= 0) return '12am';
+  if (m >= 1440) return 'midnight';
+  const h24 = Math.floor(m / 60), mm = m % 60;
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}${mm ? ':' + String(mm).padStart(2, '0') : ''}${h24 < 12 ? 'am' : 'pm'}`;
 }
 const signed = n => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(r0(n)).toLocaleString();
 
@@ -243,104 +267,145 @@ function microTotalsFor(d) {
    BURN CHECK-INS AND SEGMENTS
    ===================================================================== */
 
-const burnFor    = d => state.burn.filter(b => b.d === d);
-const burnAt     = (d, cpKey) => burnFor(d).find(b => b.cp === cpKey);
-/* Readings are cumulative, so the day's burn is simply the latest one. */
-function burnDayTotal(d) {
-  const logged = loggedCheckpoints(d);
-  return logged.length ? logged[logged.length - 1].cum : null;
-}
-function loggedCheckpoints(d) {
-  return CHECKPOINTS
-    .map(cp => { const rec = burnAt(d, cp.k); return rec ? { cp, cum: rec.cum } : null; })
-    .filter(Boolean)
-    .sort((a, b) => a.cp.min - b.cp.min);
+const burnFor = d => state.burn.filter(b => b.d === d);
+
+/* Readings are free-form: one per real clock time, as many as you like.
+   The four CHECKPOINTS are only reminder triggers now, not slots to fill.
+   Older records were keyed to a nominal slot but already carried `min`,
+   so they slot straight into this ordering. */
+function readingsFor(d) {
+  return burnFor(d)
+    .map(b => ({ ...b, min: typeof b.min === 'number' ? b.min : 0 }))
+    .sort((a, b) => a.min - b.min || a.ts - b.ts);
 }
 
-/* Build the day's segments from whatever check-ins exist.
-   A skipped check-in merges its window into the next one — because readings
-   are cumulative, the later reading still contains that burn, so subtracting
-   across the wider gap is exact rather than an estimate. */
+/* Cumulative, so the day's burn is simply the latest reading. */
+function burnDayTotal(d) {
+  const r = readingsFor(d);
+  if (!r.length) return null;
+  /* Highest, not last: protects the day total if a stray reading is low. */
+  return Math.max(...r.map(x => x.cum));
+}
+const finalReadingFor = d => readingsFor(d).find(r => r.final);
+
+/* Build the day's segments from the real times you logged at.
+   A gap between readings merges into one wider window — because readings are
+   cumulative, subtracting across the gap is exact, not an estimate. */
 function segmentsFor(d) {
-  const logged = loggedCheckpoints(d);
+  const readings = readingsFor(d);
   const rows = entriesFor(d);
   const segs = [];
   let prevMin = 0, prevCum = 0;
 
-  logged.forEach(({ cp, cum }) => {
-    const missed = CHECKPOINTS.filter(c => c.min > prevMin && c.min < cp.min);
+  readings.forEach(r => {
+    /* Which nominal reminders fell inside this window — shown so a wide
+       segment explains itself. */
+    const skipped = CHECKPOINTS.filter(c => c.min > prevMin && c.min < r.min);
+    /* Cumulative readings only go up. The entry forms enforce that, but an
+       imported backup could still carry a pair out of order — flag it rather
+       than rendering a negative burn as if it were real. */
+    const raw = r.cum - prevCum;
     segs.push({
+      bad: raw < 0,
       from: prevMin,
-      to: cp.min,
-      label: SEG_NAMES[`${prevMin}-${cp.min}`] || `${minToPretty(prevMin)} – ${minToPretty(cp.min)}`,
-      burned: cum - prevCum,
-      missed: missed.map(m => m.short),
-      at: cp.label,
+      to: r.min,
+      label: r.final && r.min >= 1440
+        ? `${minToShort(prevMin)} – end of day`
+        : `${minToShort(prevMin)} – ${minToShort(r.min)}`,
+      burned: raw < 0 ? null : raw,
+      missed: skipped.map(c => c.short),
+      readingId: r.id,
+      at: minToPretty(r.min),
+      final: !!r.final,
     });
-    prevMin = cp.min;
-    prevCum = cum;
+    prevMin = r.min;
+    prevCum = r.cum;
   });
 
-  /* Food eaten after the last reading has no burn figure to sit against. */
-  const tailEaten = rows.filter(e => entryMin(e) >= prevMin);
-  if (tailEaten.length) {
+  /* Food eaten after the last reading has no burn figure to sit against —
+     until the next reading, or yesterday's final total, fills it in. */
+  const tail = rows.filter(e => entryMin(e) >= prevMin);
+  if (prevMin < 1440 && tail.length) {
     segs.push({
       from: prevMin,
       to: 1441,
-      label: prevMin === 0 ? 'Not yet checked in' : `After ${minToPretty(prevMin)}`,
+      label: prevMin === 0 ? 'Not yet checked in' : `After ${minToShort(prevMin)}`,
       burned: null,
       missed: [],
       tail: true,
     });
   }
 
-  segs.forEach(s => {
-    const inSeg = rows.filter(e => { const m = entryMin(e); return m >= s.from && m < s.to; });
+  segs.forEach(sg => {
+    const inSeg = rows.filter(e => { const m = entryMin(e); return m >= sg.from && m < sg.to; });
     const t = inSeg.reduce((acc, e) => {
       const mm = macrosOf(e);
       acc.kcal += mm.kcal; acc.p += mm.p;
       return acc;
     }, { kcal: 0, p: 0 });
-    s.eaten = t.kcal;
-    s.protein = t.p;
-    s.count = inSeg.length;
-    s.balance = s.burned == null ? null : s.eaten - s.burned;
+    sg.eaten = t.kcal;
+    sg.protein = t.p;
+    sg.count = inSeg.length;
+    sg.balance = sg.burned == null ? null : sg.eaten - sg.burned;
   });
 
   return segs;
 }
 
-/* Checkpoints that are due today but not logged, for the app-open banner. */
-function pendingCheckpoints(d = todayStr()) {
-  if (d !== todayStr()) return [];
+/* One prompt, not a stack of them: if any reminder time has passed since the
+   last reading, you are simply due to log your current total. */
+function checkinDue(d = todayStr()) {
+  if (d !== todayStr()) return null;
   const now = nowMinutes();
-  return CHECKPOINTS.filter(cp => cp.min <= now && !burnAt(d, cp.k));
+  const readings = readingsFor(d);
+  const lastMin = readings.length ? readings[readings.length - 1].min : -1;
+  const passed = CHECKPOINTS.filter(c => c.min <= now && c.min > lastMin);
+  if (!passed.length) return null;
+  return { since: passed[0], count: passed.length, lastMin };
 }
 
-function saveCheckin(d, cpKey, cum) {
-  const existing = burnAt(d, cpKey);
+/* Days that have readings but were never closed off with a final total. */
+function daysNeedingFinal(limit = 14) {
+  const out = [];
+  const today = todayStr();
+  for (let i = 1; i <= limit; i++) {
+    const d = shiftDate(today, -i);
+    const r = readingsFor(d);
+    if (r.length && !r.some(x => x.final)) out.push(d);
+  }
+  return out;
+}
+
+function saveReading(d, min, cum, { final = false, id = null } = {}) {
+  const existing = id ? state.burn.find(b => b.id === id) : null;
   if (existing) {
     existing.cum = cum;
+    existing.min = min;
+    existing.final = final;
     existing.ts = Date.now();
   } else {
-    const cp = CHECKPOINTS.find(c => c.k === cpKey);
-    state.burn.push({ id: uid(), d, cp: cpKey, cum, ts: Date.now(), min: cp ? cp.min : 0 });
+    state.burn.push({ id: uid(), d, min, cum, ts: Date.now(), final });
   }
   saveBurn();
 }
+function deleteReading(id) {
+  state.burn = state.burn.filter(b => b.id !== id);
+  saveBurn();
+}
 
-/* A cumulative figure must not fall below an earlier one or exceed a later
-   one — that is a typo, not a reading, and it would produce negative burn. */
-function checkinConflict(d, cpKey, cum) {
-  const cp = CHECKPOINTS.find(c => c.k === cpKey);
-  if (!cp) return null;
-  for (const l of loggedCheckpoints(d)) {
-    if (l.cp.k === cpKey) continue;
-    if (l.cp.min < cp.min && cum < l.cum) {
-      return `Lower than your ${l.cp.label} reading of ${l.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
+/* A cumulative figure cannot dip below an earlier one or exceed a later one —
+   that is a typo, not a reading, and it would produce negative burn. */
+function readingConflict(d, min, cum, excludeId) {
+  for (const r of readingsFor(d)) {
+    if (r.id === excludeId) continue;
+    if (r.min < min && cum < r.cum) {
+      return `Lower than your ${minToPretty(r.min)} reading of ${r.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
     }
-    if (l.cp.min > cp.min && cum > l.cum) {
-      return `Higher than your ${l.cp.label} reading of ${l.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
+    if (r.min > min && cum > r.cum) {
+      return `Higher than your ${minToPretty(r.min)} reading of ${r.cum.toLocaleString()} kcal. Cumulative totals only go up.`;
+    }
+    if (r.min === min && !r.final) {
+      return `You already have a reading at ${minToPretty(min)}. Tap it in the table to edit it.`;
     }
   }
   return null;
@@ -376,9 +441,28 @@ function removeWater(id) {
    ===================================================================== */
 
 let totalsOpen = false, psMicroOpen = false, currentView = 'today';
-const bannerDismissed = new Set();   // per session, so the nudge returns next launch
+let bannerDismissed = false;          // per session, so the nudge returns next launch
+const finalDismissed = new Set();     // days skipped this session
+let finalTarget = null;
+let finalPending = null;   // a past day being closed off from the Week view
+
+/* Hide or show whole features. Purely visual — nothing is deleted. */
+function applyFeatures() {
+  $('#burnWrap').classList.toggle('hidden', !features.burn);
+  $('#aiSettingsWrap').classList.toggle('hidden', !features.ai);
+  $('#aiFromSearch').classList.toggle('hidden', !features.ai);
+  $('#nfAi').classList.toggle('hidden', !features.ai);
+  $('#featBurn').checked = !!features.burn;
+  $('#featAi').checked = !!features.ai;
+  document.body.classList.toggle('no-burn', !features.burn);
+  if (!features.burn) {
+    $('#cpBanner').classList.add('hidden');
+    $('#finalBanner').classList.add('hidden');
+  }
+}
 
 function renderAll() {
+  applyFeatures();
   renderDate();
   renderBanner();
   renderSummary();
@@ -386,25 +470,26 @@ function renderAll() {
   renderBurn();
   renderQuick();
   renderEntries();
+  renderFinalBanner();
   if (currentView === 'week') renderWeek();
 }
 
 /* The topbar arrows drive whichever view is showing: days on Today,
    whole weeks on Week. */
 function renderDate() {
+  const btn = $('#jumpToday');
   if (currentView === 'week') {
     const end = shiftDate(state.weekStart, 6);
-    const f = s => { const [y, m, d] = s.split('-').map(Number);
+    const f = str => { const [y, m, d] = str.split('-').map(Number);
       return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); };
-    $('#dateLabel').textContent = `${f(state.weekStart)} – ${f(end)}`;
-    $('#datePicker').disabled = true;
-    $('#nextDay').style.visibility = state.weekStart >= mondayOf(todayStr()) ? 'hidden' : 'visible';
+    $('#dateLabel').textContent = `${f(state.weekStart)} \u2013 ${f(end)}`;
+    btn.textContent = 'This week';
+    btn.disabled = state.weekStart === mondayOf(todayStr());
     return;
   }
-  $('#datePicker').disabled = false;
   $('#dateLabel').textContent = prettyDate(state.date);
-  $('#datePicker').value = state.date;
-  $('#nextDay').style.visibility = state.date >= todayStr() ? 'hidden' : 'visible';
+  btn.textContent = 'Today';
+  btn.disabled = state.date === todayStr();
 }
 
 function renderSummary() {
@@ -517,7 +602,9 @@ function renderBurn() {
   body.innerHTML = '';
   segs.forEach(s => {
     const tr = document.createElement('tr');
-    const missed = s.missed.length ? `<span class="sm">${s.missed.join(' + ')} missed — merged</span>` : '';
+    const missed = s.bad
+      ? '<span class="sm warn">reading lower than the one before it</span>'
+      : s.missed.length ? `<span class="sm">${s.missed.join(' + ')} missed — merged</span>` : '';
     const balCell = s.balance == null
       ? '<span class="none">—</span>'
       : `<span class="${s.balance > 0 ? 'good' : s.balance < 0 ? 'warn' : ''}">${signed(s.balance)}</span>`;
@@ -530,27 +617,26 @@ function renderBurn() {
   });
 
   const note = $('#burnNote');
-  if (!segs.length) {
-    note.textContent = 'No check-ins yet today. Tap a time below and enter the cumulative total from Apple Health.';
+  if (segs.some(x => x.bad)) {
+    note.textContent = 'Two readings are out of order — a later one is lower than an earlier one, which cannot happen with a cumulative total. Tap the readings below and correct the wrong figure.';
+  } else if (!segs.length) {
+    note.textContent = 'No readings yet. Tap the button below and enter the cumulative total your fitness app is showing.';
   } else if (segs.some(s => s.tail)) {
-    note.textContent = 'Food logged after your last check-in has no burn figure to sit against yet — log the next check-in and it fills in.';
+    note.textContent = 'Food logged after your last reading has no burn figure against it yet — the next reading, or the day\u2019s final total, fills it in.';
   } else if (segs.some(s => s.missed.length)) {
-    note.textContent = 'A missed check-in merges into the next window. Because readings are cumulative, the merged figure is exact, not estimated.';
+    note.textContent = 'A long gap between readings shows as one wider window. Because readings are cumulative, that figure is exact, not estimated.';
   } else {
     note.textContent = 'Balance is eaten minus burned. A surplus (green) is what builds weight on a bulk; a shortfall (amber) means you ate less than you burned.';
   }
 
-  /* check-in chips */
+  /* One chip per reading actually taken, at its real time. */
   const chips = $('#cpChips');
   chips.innerHTML = '';
-  const now = nowMinutes(), isToday = d === todayStr();
-  CHECKPOINTS.forEach(cp => {
-    const rec = burnAt(d, cp.k);
-    const due = isToday && !rec && cp.min <= now;
+  readingsFor(d).forEach(r => {
     const b = document.createElement('button');
-    b.className = 'chip' + (rec ? ' done' : due ? ' due' : '');
-    b.innerHTML = `${cp.short}<small>${rec ? r0(rec.cum).toLocaleString() + ' kcal' : due ? 'due' : 'log'}</small>`;
-    b.onclick = () => openCheckin(d, cp.k);
+    b.className = 'chip done' + (r.final ? ' final' : '');
+    b.innerHTML = `${r.final ? 'Final' : minToPretty(r.min)}<small>${r0(r.cum).toLocaleString()} kcal</small>`;
+    b.onclick = () => openCheckin(d, r.id);
     chips.appendChild(b);
   });
 
@@ -559,51 +645,87 @@ function renderBurn() {
 
 function renderBanner() {
   const banner = $('#cpBanner');
-  const pending = pendingCheckpoints().filter(cp => !bannerDismissed.has(cp.k));
+  const due = features.burn && state.date === todayStr() && !bannerDismissed
+    ? checkinDue() : null;
 
-  if (state.date !== todayStr() || !pending.length) {
-    banner.classList.add('hidden');
-    return;
+  if (!due) { banner.classList.add('hidden'); return; }
+
+  /* One prompt however many reminder times have slipped by — the reading is
+     "what the app says right now", not a slot to backfill. */
+  $('#bannerTitle').textContent = due.count > 1
+    ? `It\u2019s past ${due.since.label} \u2014 log your current burned total`
+    : `It\u2019s past ${due.since.label} \u2014 log burned calories?`;
+  $('#bannerHint').innerHTML = due.count > 1
+    ? `${due.count} reminder times have passed since your last reading. Just enter the <b>cumulative</b> total showing now \u2014 no need to backfill each one.`
+    : 'Enter the <b>cumulative</b> total your fitness app shows right now \u2014 not the difference.';
+
+  if (!$('#bannerCum').value) $('#bannerTime').value = minToHHMM(nowMinutes());
+  $('#bannerErr').classList.add('hidden');
+  banner.classList.remove('hidden');
+}
+
+function commitBannerCheckin() {
+  const v = parseFloat($('#bannerCum').value);
+  const err = $('#bannerErr');
+  const fail = msg => { err.textContent = msg; err.classList.remove('hidden'); };
+
+  if (!(v >= 0)) return fail('Enter the cumulative total your fitness app is showing.');
+  if (v > 20000)  return fail('That looks too high for one day — check the figure.');
+
+  const min = parseTimeInput($('#bannerTime').value);
+  if (min == null) return fail('Enter the time this reading was taken.');
+
+  const conflict = readingConflict(todayStr(), min, v, null);
+  if (conflict) return fail(conflict);
+
+  saveReading(todayStr(), min, v);
+  $('#bannerCum').value = '';
+  err.classList.add('hidden');
+  renderAll();
+  toast(`Reading at ${minToPretty(min)} saved`);
+  requestAdvice(todayStr(), min);
+}
+
+/* ------------------------- yesterday's final total ------------------------- */
+
+function renderFinalBanner() {
+  const banner = $('#finalBanner');
+  const pending = features.burn ? daysNeedingFinal().filter(d => !finalDismissed.has(d)) : [];
+
+  if (!pending.length || state.date !== todayStr()) { banner.classList.add('hidden'); return; }
+
+  finalTarget = pending[0];
+  const last = readingsFor(finalTarget).slice(-1)[0];
+  $('#finalTitle').textContent = `Finish ${prettyDate(finalTarget).toLowerCase()}`;
+  $('#finalHint').innerHTML = `Your last reading that day was <b>${r0(last.cum).toLocaleString()} kcal</b> at ${minToPretty(last.min)}. `
+    + 'Enter the final total your fitness app shows for that day and the rest of the evening fills in.';
+  $('#finalErr').classList.add('hidden');
+  banner.classList.remove('hidden');
+}
+
+function commitFinal() {
+  const v = parseFloat($('#finalCum').value);
+  const err = $('#finalErr');
+  const fail = msg => { err.textContent = msg; err.classList.remove('hidden'); };
+  if (!finalTarget) return;
+  if (!(v >= 0)) return fail('Enter the final total for that day.');
+  if (v > 20000)  return fail('That looks too high for one day — check the figure.');
+
+  const last = readingsFor(finalTarget).slice(-1)[0];
+  if (last && v < last.cum) {
+    return fail(`Lower than your ${minToPretty(last.min)} reading of ${last.cum.toLocaleString()} kcal. Cumulative totals only go up.`);
   }
 
-  $('#bannerTitle').textContent = pending.length === 1
-    ? `It’s past ${pending[0].label} — log burned calories?`
-    : `${pending.length} check-ins pending — log burned calories?`;
-
-  const rows = $('#bannerRows');
-  rows.innerHTML = '';
-  pending.forEach(cp => {
-    const row = document.createElement('div');
-    row.className = 'bannerrow';
-    row.innerHTML = `<span>${cp.label}</span>`;
-
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.inputMode = 'numeric';
-    input.placeholder = 'kcal';
-    input.setAttribute('aria-label', `Cumulative burned at ${cp.label}`);
-
-    const btn = document.createElement('button');
-    btn.textContent = 'Log';
-    const commit = () => {
-      const v = parseFloat(input.value);
-      if (!(v >= 0)) { toast('Enter the cumulative total from Apple Health'); input.focus(); return; }
-      const conflict = checkinConflict(todayStr(), cp.k, v);
-      if (conflict) { toast(conflict); input.focus(); return; }
-      saveCheckin(todayStr(), cp.k, v);
-      toast(`${cp.label} check-in saved`);
-      renderAll();
-      requestAdvice(todayStr(), cp.k);
-    };
-    btn.onclick = commit;
-    input.onkeydown = e => { if (e.key === 'Enter') commit(); };
-
-    row.appendChild(input);
-    row.appendChild(btn);
-    rows.appendChild(row);
-  });
-
-  banner.classList.remove('hidden');
+  /* Sits at end-of-day so the stretch from the last check-in to midnight
+     stops reading "—" and gets its real burn. */
+  saveReading(finalTarget, 1440, v, { final: true });
+  const done = finalTarget;
+  finalDismissed.add(done);
+  $('#finalCum').value = '';
+  finalTarget = null;
+  renderAll();
+  renderFinalBanner();
+  toast(`${prettyDate(done)} closed off at ${r0(v).toLocaleString()} kcal`);
 }
 
 /* --------------------------------- week --------------------------------- */
@@ -615,15 +737,26 @@ function weekDays() {
 function renderWeek() {
   const days = weekDays();
   const body = $('#weekBody');
+  const showBurn = features.burn;
   body.innerHTML = '';
+
+  /* With burn off the table is just day / eaten / protein — the weekly food
+     view is useful on its own, so the tab stays. */
+  document.querySelectorAll('#view-week .burncol').forEach(el => el.classList.toggle('hidden', !showBurn));
+  $('#view-week .weektop').classList.toggle('burnoff', !showBurn);
+  $('#wkBurnCell').classList.toggle('hidden', !showBurn);
+  $('#wkBalCell').classList.toggle('hidden', !showBurn);
 
   let sumB = 0, nB = 0, sumE = 0, nE = 0, sumP = 0;
   const today = todayStr();
+  let needFinal = 0;
 
   days.forEach(d => {
     const burned = burnDayTotal(d);
     const t = totalsFor(d);
     const hasFood = entriesFor(d).length > 0;
+    const open = showBurn && d < today && readingsFor(d).length && !finalReadingFor(d);
+    if (open) needFinal++;
     if (burned != null) { sumB += burned; nB++; }
     if (hasFood) { sumE += t.kcal; sumP += t.p; nE++; }
 
@@ -634,14 +767,25 @@ function renderWeek() {
     const tr = document.createElement('tr');
     if (d === today) tr.className = 'today';
     tr.innerHTML = `
-      <td>${dt.toLocaleDateString(undefined, { weekday: 'short' })} ${+dd}</td>
-      <td>${burned == null ? '<span class="none">—</span>' : r0(burned).toLocaleString()}</td>
+      <td>${dt.toLocaleDateString(undefined, { weekday: 'short' })} ${+dd}${
+        open ? `<button class="finishbtn" data-day="${d}">finish</button>` : ''}</td>
+      <td class="burncol${showBurn ? '' : ' hidden'}">${burned == null ? '<span class="none">—</span>' : r0(burned).toLocaleString()}</td>
       <td>${hasFood ? r0(t.kcal).toLocaleString() : '<span class="none">—</span>'}</td>
-      <td>${bal == null ? '<span class="none">—</span>'
+      <td class="burncol${showBurn ? '' : ' hidden'}">${bal == null ? '<span class="none">—</span>'
             : `<span class="${bal > 0 ? 'good' : bal < 0 ? 'warn' : ''}">${signed(bal)}</span>`}</td>
       <td>${hasFood ? r0(t.p) + '<span class="sm">of ' + state.targets.p + '</span>'
                     : '<span class="none">—</span>'}</td>`;
     body.appendChild(tr);
+  });
+
+  /* "Complete yesterday" lives here too, so a skipped prompt is recoverable
+     whenever you next check your Health app. */
+  body.querySelectorAll('.finishbtn').forEach(b => {
+    b.onclick = ev => {
+      ev.stopPropagation();
+      openCheckin(b.dataset.day, null);
+      finalPending = b.dataset.day;
+    };
   });
 
   const avgB = nB ? sumB / nB : null;
@@ -653,9 +797,9 @@ function renderWeek() {
   tr.className = 'avg';
   tr.innerHTML = `
     <td>Average</td>
-    <td>${avgB == null ? '<span class="none">—</span>' : r0(avgB).toLocaleString()}</td>
+    <td class="burncol${showBurn ? '' : ' hidden'}">${avgB == null ? '<span class="none">—</span>' : r0(avgB).toLocaleString()}</td>
     <td>${avgE == null ? '<span class="none">—</span>' : r0(avgE).toLocaleString()}</td>
-    <td>${avgBal == null ? '<span class="none">—</span>'
+    <td class="burncol${showBurn ? '' : ' hidden'}">${avgBal == null ? '<span class="none">—</span>'
           : `<span class="${avgBal > 0 ? 'good' : 'warn'}">${signed(avgBal)}</span>`}</td>
     <td>${avgP == null ? '<span class="none">—</span>' : r0(avgP)}</td>`;
   body.appendChild(tr);
@@ -669,10 +813,19 @@ function renderWeek() {
   setTop('#wkEat', avgE, false);
   setTop('#wkBal', avgBal, true);
 
-  $('#weekNote').textContent = nB === 0 && nE === 0
-    ? 'Nothing logged this week yet.'
-    : `Averages cover the days with data — ${nB} day${nB === 1 ? '' : 's'} of burn, ${nE} of food. Days with no entry are left out rather than counted as zero.`;
+  const note = $('#weekNote');
+  if (nB === 0 && nE === 0) {
+    note.textContent = 'Nothing logged this week yet.';
+  } else if (needFinal) {
+    note.textContent = `${needFinal} day${needFinal === 1 ? '' : 's'} still open — tap “finish” next to a day to enter its final burned total. `
+      + `Averages cover the days with data; days with no entry are left out rather than counted as zero.`;
+  } else {
+    note.textContent = showBurn
+      ? `Averages cover the days with data — ${nB} day${nB === 1 ? '' : 's'} of burn, ${nE} of food. Days with no entry are left out rather than counted as zero.`
+      : `Averages cover the ${nE} day${nE === 1 ? '' : 's'} with food logged. Days with no entry are left out rather than counted as zero.`;
+  }
 }
+
 
 function renderQuick() {
   const top = usageStats().sort((a, b) => b.count - a.count || b.lastTs - a.lastTs).slice(0, 8);
@@ -1522,7 +1675,8 @@ function coerceEstimate(raw) {
 
 /* Shared transport for both AI features: nutrition estimates and meal
    suggestions. Returns the raw assistant text plus the model that answered. */
-async function aiChat(system, user, { timeout = 30000, json = false, maxTokens = 700, temperature = 0.2 } = {}) {
+async function aiChat(system, user, { timeout = 30000, json = false, maxTokens = 700,
+                                      temperature = 0.2, reasoningEffort = null } = {}) {
   const key = (state.ai.key || '').trim();
   if (!key) { const e = new Error('nokey'); e.code = 'nokey'; throw e; }
   const model = (state.ai.model || '').trim() || AI_DEFAULT_MODEL;
@@ -1536,6 +1690,10 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     temperature,
     max_tokens: maxTokens,
   };
+  /* gpt-oss and friends are reasoning models: they spend tokens thinking
+     before they write a word of the answer. Capping effort keeps that spend
+     small so the answer actually fits inside max_tokens. */
+  if (reasoningEffort) body.reasoning = { effort: reasoningEffort };
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
@@ -1573,9 +1731,30 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     }
 
     const data = await res.json();
-    const text = data && data.choices && data.choices[0]
-      && data.choices[0].message && data.choices[0].message.content;
+    aiChat.lastRaw = data;
     aiChat.lastModel = data.model || model;
+    aiChat.lastFromReasoning = false;
+
+    const choice = (data.choices && data.choices[0]) || {};
+    const msg = choice.message || {};
+    let text = msg.content;
+
+    /* A reasoning model that runs out of budget mid-thought returns an empty
+       content string with finish_reason "length". Falling back to the
+       reasoning trace salvages an answer that would otherwise be lost. */
+    if (!String(text || '').trim() && String(msg.reasoning || '').trim()) {
+      text = msg.reasoning;
+      aiChat.lastFromReasoning = true;
+    }
+
+    if (!String(text || '').trim()) {
+      const truncated = choice.finish_reason === 'length';
+      const e = new Error(truncated ? 'reply truncated before any answer' : 'empty reply');
+      e.code = truncated ? 'truncated' : 'parse';
+      e.raw = JSON.stringify(data, null, 2);
+      e.finish = choice.finish_reason || '';
+      throw e;
+    }
     return text;
   } catch (err) {
     if (err.name === 'AbortError') { const e = new Error('timeout'); e.code = 'timeout'; throw e; }
@@ -1589,7 +1768,12 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
 async function aiRequest(description, { timeout = 30000 } = {}) {
   const text = await aiChat(AI_SYSTEM, 'Food: ' + description, { timeout, json: true, maxTokens: 700 });
   const est = coerceEstimate(extractJson(text));
-  if (!est) { const e = new Error('unparsable'); e.code = 'parse'; e.raw = text; throw e; }
+  if (!est) {
+    const e = new Error('unparsable');
+    e.code = 'parse';
+    e.raw = typeof text === 'string' ? text : JSON.stringify(aiChat.lastRaw, null, 2);
+    throw e;
+  }
   est.model = aiChat.lastModel;
   return est;
 }
@@ -1600,6 +1784,7 @@ function aiErrorText(err) {
     case 'auth':    return 'OpenRouter rejected the key. Check it in Settings, or generate a new one.';
     case 'credits': return 'That key is out of credit. Add credit on openrouter.ai, or switch to a “:free” model in Settings.';
     case 'rate':    return 'Rate limited — free OpenRouter models allow only a few calls a minute. Wait a moment and try again.';
+    case 'truncated': return 'The model used its whole token budget thinking and never wrote an answer. Raising the limit or lowering reasoning effort usually fixes it — try again, or pick a different model in Settings.';
     case 'timeout': return 'The model took too long. Try again, or pick a faster model in Settings.';
     case 'network': return 'Could not reach OpenRouter. Check your connection.';
     case 'parse':   return 'The model replied with something unreadable. Try again, or use a different model in Settings.';
@@ -1682,24 +1867,34 @@ function openEstimateConfirm(est, desc) {
    BURN CHECK-IN SHEET
    ===================================================================== */
 
-let bs = { d: null, cp: null };
+let bs = { d: null, id: null };
 
-function openCheckin(d, cpKey) {
-  const cp = CHECKPOINTS.find(c => c.k === cpKey);
-  bs = { d, cp: cpKey };
-  const rec = burnAt(d, cpKey);
+function openCheckin(d, readingId = null) {
+  const rec = readingId ? state.burn.find(b => b.id === readingId) : null;
+  bs = { d, id: rec ? rec.id : null };
 
-  $('#bsTitle').textContent = `${cp.label} check-in`;
+  $('#bsTitle').textContent = rec
+    ? (rec.final ? 'Final total for the day' : `Reading at ${minToPretty(rec.min)}`)
+    : 'Log a burned-calorie reading';
   $('#bsCum').value = rec ? rec.cum : '';
+  $('#bsTime').value = minToHHMM(rec ? Math.min(rec.min, 1439) : nowMinutes());
+  $('#bsTime').disabled = !!(rec && rec.final);
+  $('#bsTimeLabel').textContent = rec && rec.final ? 'Covers through' : 'Reading taken at';
   $('#bsWarn').classList.add('hidden');
   $('#bsDelete').classList.toggle('hidden', !rec);
 
-  /* Show what the entered figure will mean, so a wrong number is obvious. */
-  const logged = loggedCheckpoints(d);
-  const before = logged.filter(l => l.cp.min < cp.min).pop();
+  /* Show what the figure will mean, so a wrong number is obvious. */
+  const before = readingsFor(d).filter(r => r.id !== bs.id && r.min < (rec ? rec.min : nowMinutes())).pop();
   $('#bsContext').textContent = before
-    ? `Your ${before.cp.label} reading was ${before.cum.toLocaleString()} kcal — this segment is the difference.`
-    : 'No earlier check-in today, so this reading is the whole stretch since midnight.';
+    ? `Your ${minToPretty(before.min)} reading was ${before.cum.toLocaleString()} kcal — this segment is the difference.`
+    : 'No earlier reading that day, so this covers the whole stretch since midnight.';
+
+  if (finalPending === d && !rec) {
+    $('#bsTitle').textContent = `Final total for ${prettyDate(d).toLowerCase()}`;
+    $('#bsTime').value = '23:59';
+    $('#bsTimeLabel').textContent = 'Covers through';
+    $('#bsTime').disabled = true;
+  }
 
   showSheet('#burnSheet');
   setTimeout(() => $('#bsCum').focus(), 80);
@@ -1707,34 +1902,38 @@ function openCheckin(d, cpKey) {
 
 function commitCheckin() {
   const v = parseFloat($('#bsCum').value);
-  if (!(v >= 0)) { toast('Enter the cumulative total from Apple Health'); return; }
+  const warn = msg => {
+    const w = $('#bsWarn');
+    w.innerHTML = '<b>Check that number</b>' + escapeHtml(msg);
+    w.classList.remove('hidden');
+  };
+  if (!(v >= 0)) { toast('Enter the cumulative total from your fitness app'); return; }
   if (v > 20000) { toast('That looks too high — check the figure'); return; }
 
-  const conflict = checkinConflict(bs.d, bs.cp, v);
-  if (conflict) {
-    const w = $('#bsWarn');
-    w.innerHTML = '<b>Check that number</b>' + escapeHtml(conflict);
-    w.classList.remove('hidden');
-    return;
-  }
+  const rec = bs.id ? state.burn.find(b => b.id === bs.id) : null;
+  const isFinal = !!(rec && rec.final) || finalPending === bs.d;
+  const min = isFinal ? 1440 : parseTimeInput($('#bsTime').value);
+  if (min == null) { toast('Enter the time this reading was taken'); return; }
 
-  saveCheckin(bs.d, bs.cp, v);
+  const conflict = readingConflict(bs.d, min, v, bs.id);
+  if (conflict) { warn(conflict); return; }
+
+  saveReading(bs.d, min, v, { final: isFinal, id: bs.id });
+  if (finalPending) { finalDismissed.add(finalPending); finalPending = null; }
   closeSheets();
   renderAll();
-  const cp = CHECKPOINTS.find(c => c.k === bs.cp);
-  toast(`${cp.label} check-in saved`);
-  requestAdvice(bs.d, bs.cp);
+  toast(isFinal ? 'Final total saved' : `Reading at ${minToPretty(min)} saved`);
+  if (!isFinal) requestAdvice(bs.d, min);
 }
 
 function deleteCheckin() {
-  const rec = burnAt(bs.d, bs.cp);
+  const rec = bs.id ? state.burn.find(b => b.id === bs.id) : null;
   if (!rec) return;
-  if (!confirm('Delete this check-in?\n\nThe surrounding segments will merge.')) return;
-  state.burn = state.burn.filter(b => b.id !== rec.id);
-  saveBurn();
+  if (!confirm('Delete this reading?\n\nThe surrounding segments will merge.')) return;
+  deleteReading(rec.id);
   closeSheets();
   renderAll();
-  toast('Check-in deleted', 'Undo', () => {
+  toast('Reading deleted', 'Undo', () => {
     state.burn.push(rec); saveBurn(); renderAll();
   });
 }
@@ -1774,8 +1973,7 @@ function libraryForPrompt(limit = 55) {
     .join('\n');
 }
 
-function advicePrompt(d, cpKey) {
-  const cp = CHECKPOINTS.find(c => c.k === cpKey);
+function advicePrompt(d, slotMin) {
   const t = totalsFor(d);
   const burned = burnDayTotal(d);
   const rows = entriesFor(d);
@@ -1785,7 +1983,7 @@ function advicePrompt(d, cpKey) {
     : '- nothing logged yet';
 
   return [
-    `Time now: ${cp ? cp.label : minToPretty(nowMinutes())}.`,
+    `Time now: ${minToPretty(slotMin != null ? slotMin : nowMinutes())}.`,
     `Daily targets: ${state.targets.kcal} kcal, ${state.targets.p} g protein.`,
     `Eaten so far: ${r0(t.kcal)} kcal, ${gfmt(t.p)} g protein.`,
     `Remaining: ${r0(state.targets.kcal - t.kcal)} kcal, ${gfmt(state.targets.p - t.p)} g protein.`,
@@ -1801,12 +1999,54 @@ function advicePrompt(d, cpKey) {
   ].join('\n');
 }
 
+/* Keys a model might wrap prose in when it decides to answer with JSON
+   despite being told not to. */
+const ADVICE_KEYS = ['advice', 'suggestion', 'recommendation', 'text', 'message',
+                     'answer', 'response', 'result', 'output', 'summary'];
+
+/* Salvage a usable sentence from whatever came back: fenced blocks,
+   prose-wrapped JSON, markdown bullets, stray quotes. */
+function cleanAdvice(raw) {
+  let t = String(raw || '').trim();
+  if (!t) return '';
+
+  const fence = t.match(/```(?:\w+)?\s*([\s\S]*?)```/);
+  if (fence && fence[1].trim()) t = fence[1].trim();
+
+  const obj = extractJson(t);
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    const lower = {};
+    Object.keys(obj).forEach(k => { lower[k.toLowerCase()] = obj[k]; });
+    let picked = '';
+    for (const k of ADVICE_KEYS) {
+      if (typeof lower[k] === 'string' && lower[k].trim()) { picked = lower[k]; break; }
+    }
+    if (!picked) {
+      const v = Object.values(obj).find(x => typeof x === 'string' && x.trim().length > 15);
+      if (v) picked = v;
+    }
+    if (picked) t = picked;
+  }
+
+  return t
+    .replace(/\*\*(.*?)\*\*/g, '$1')          // bold first, or the bullet
+    .replace(/\*(.*?)\*/g, '$1')              // strip below eats its markers
+    .replace(/^\s*(?:[#>\-\u2022]+|\d+[.)])\s*/gm, '')
+    .replace(/^\s*(?:suggestion|advice|answer)\s*:\s*/i, '')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^["'\s]+|["'\s]+$/g, '')
+    .trim()
+    .slice(0, 400);
+}
+
 const adviceKey = (d, cpKey) => `${d}:${cpKey}`;
 let adviceInFlight = null;
 
 /* Auto-fires on save, but only once per checkpoint — a cached suggestion is
    reused on re-render so re-opening the app never re-bills a call. */
 async function requestAdvice(d, cpKey, { force = false } = {}) {
+  if (!features.ai) return;
   const key = adviceKey(d, cpKey);
   if (!force && state.advice[key]) { renderAdvice(); return; }
   if (!(state.ai.key || '').trim()) { renderAdvice(); return; }
@@ -1819,14 +2059,32 @@ async function requestAdvice(d, cpKey, { force = false } = {}) {
   renderAdvice();
 
   try {
-    const text = await aiChat(ADVICE_SYSTEM, advicePrompt(d, cpKey), { maxTokens: 160, temperature: 0.4 });
-    const clean = String(text || '').replace(/\s+/g, ' ').replace(/^["'\s-]+|["'\s]+$/g, '').trim();
-    if (!clean) throw Object.assign(new Error('empty'), { code: 'parse' });
-    state.advice[key] = { text: clean, model: state.ai.model, ts: Date.now(), cp: cpKey };
+    /* 160 tokens was the bug: this model reasons first, so the budget was
+       gone before it wrote anything. Give it room and cap the thinking. */
+    const text = await aiChat(ADVICE_SYSTEM, advicePrompt(d, cpKey), {
+      maxTokens: 700, temperature: 0.4, reasoningEffort: 'low',
+    });
+    adviceRawText = typeof text === 'string' ? text : '';
+    console.info('[Macros] advice raw response:', text, aiChat.lastRaw);
+
+    const clean = cleanAdvice(text);
+    if (!clean) {
+      throw Object.assign(new Error('nothing usable in reply'),
+        { code: 'parse', raw: JSON.stringify(aiChat.lastRaw, null, 2) });
+    }
+    state.advice[key] = {
+      text: clean,
+      model: aiChat.lastModel || state.ai.model,
+      ts: Date.now(),
+      cp: cpKey,
+      fromReasoning: !!aiChat.lastFromReasoning,
+    };
     saveAdvice();
     adviceError = '';
   } catch (err) {
     adviceError = aiErrorText(err);
+    adviceRawText = err.raw || (aiChat.lastRaw ? JSON.stringify(aiChat.lastRaw, null, 2) : '');
+    console.warn('[Macros] advice failed:', err.code, err.message, '\nraw:', adviceRawText);
   } finally {
     adviceLoading = false;
     adviceInFlight = null;
@@ -1834,26 +2092,31 @@ async function requestAdvice(d, cpKey, { force = false } = {}) {
   }
 }
 
-let adviceLoading = false, adviceError = '', adviceErrorFor = '';
+let adviceLoading = false, adviceError = '', adviceErrorFor = '', adviceRawText = '';
 
-/* Show the suggestion tied to the most recent check-in of the shown day. */
+/* Show the suggestion tied to the most recent reading of the shown day.
+   Keyed by clock time, so it survives edits to other readings. */
 function currentAdviceSlot(d) {
-  const logged = loggedCheckpoints(d);
-  return logged.length ? logged[logged.length - 1].cp.k : null;
+  const r = readingsFor(d).filter(x => !x.final);
+  return r.length ? r[r.length - 1].min : null;
 }
 
 function renderAdvice() {
   const box = $('#adviceBox');
+  if (!features.ai) { box.classList.add('hidden'); return; }
   const d = state.date;
   const slot = currentAdviceSlot(d);
 
-  if (!slot) { box.classList.add('hidden'); return; }
+  if (slot == null) { box.classList.add('hidden'); return; }
 
   const cached = state.advice[adviceKey(d, slot)];
-  const cp = CHECKPOINTS.find(c => c.k === slot);
   const err = adviceErrorFor === adviceKey(d, slot) ? adviceError : '';
   box.classList.remove('hidden');
   box.classList.toggle('working', adviceLoading);
+
+  const rawBtn = $('#adviceRawBtn'), rawBox = $('#adviceRaw');
+  rawBtn.classList.add('hidden');
+  rawBox.classList.add('hidden');
 
   if (adviceLoading) {
     $('#adviceText').textContent = 'Working out what to eat next…';
@@ -1863,16 +2126,25 @@ function renderAdvice() {
   }
   $('#adviceAgain').classList.remove('hidden');
 
+  /* Whenever there is a raw reply worth inspecting, offer it — that is the
+     only way to report what actually came back if this misbehaves again. */
+  if (adviceRawText && (err || (cached && cached.fromReasoning))) {
+    rawBtn.classList.remove('hidden');
+    rawBox.textContent = adviceRawText;
+  }
+
   if (cached) {
     $('#adviceText').textContent = cached.text;
     /* A failed retry keeps the old suggestion, but must say the retry failed —
        otherwise the button looks like it did nothing. */
     $('#adviceMeta').textContent = err
       ? 'Retry failed — ' + err
-      : `after ${cp ? cp.label : 'check-in'} · ${cached.model || ''}`;
+      : `after ${minToPretty(slot)} · ${cached.model || ''}`
+        + (cached.fromReasoning ? ' · recovered from the reasoning trace' : '');
   } else if (err) {
     $('#adviceText').textContent = err;
-    $('#adviceMeta').textContent = '';
+    $('#adviceMeta').textContent = adviceRawText ? 'The raw reply is below.' : '';
+    if (adviceRawText) { rawBox.classList.remove('hidden'); rawBtn.textContent = 'Hide raw model response'; }
   } else if (!(state.ai.key || '').trim()) {
     $('#adviceText').textContent = 'Add an OpenRouter key in Settings and suggestions will appear here after each check-in.';
     $('#adviceMeta').textContent = '';
@@ -1970,7 +2242,7 @@ function exportBackup() {
     app: 'macros', version: 4, exported: new Date().toISOString(),
     targets: state.targets, foods: state.custom, entries: state.entries,
     water: state.water, names: state.names,
-    burn: state.burn, advice: state.advice,
+    burn: state.burn, advice: state.advice, features,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2000,6 +2272,9 @@ function importBackup(file) {
       state.water   = byId(state.water, d.water);
       state.burn    = byId(state.burn, d.burn);
       state.names   = Object.assign({}, state.names, d.names || {});
+      if (Array.isArray(d.burn))  state.burn   = byId(state.burn, d.burn);
+      if (d.advice) state.advice = Object.assign({}, state.advice, d.advice);
+      if (d.features) { features = Object.assign({}, DEFAULT_FEATURES, d.features); saveFeatures(); }
       state.advice  = Object.assign({}, state.advice, d.advice || {});
       if (d.targets) state.targets = Object.assign({}, DEFAULT_TARGETS, d.targets);
       /* Model preference travels; the key never does, so keep the local one. */
@@ -2013,6 +2288,76 @@ function importBackup(file) {
     }
   };
   rd.readAsText(file);
+}
+
+/* =====================================================================
+   CALENDAR
+   ===================================================================== */
+
+let calMonth = null;   // 'YYYY-MM' of the month on screen
+
+/* Which days have food logged — the dot under a date. */
+function daysWithData() {
+  const set = new Set();
+  state.entries.forEach(e => set.add(e.d));
+  return set;
+}
+
+function openCalendar() {
+  calMonth = state.date.slice(0, 7);
+  renderCalendar();
+  showSheet('#calSheet');
+}
+
+function renderCalendar() {
+  const [y, m] = calMonth.split('-').map(Number);
+  const first = new Date(y, m - 1, 1);
+  const days = new Date(y, m, 0).getDate();
+  const lead = (first.getDay() + 6) % 7;          // Monday-first
+  const marked = daysWithData();
+  const today = todayStr();
+
+  $('#calTitle').textContent = first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  $('#calNext').disabled = calMonth >= today.slice(0, 7);
+
+  const dow = $('#calDow');
+  dow.innerHTML = '';
+  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    .forEach(l => { const sp = document.createElement('span'); sp.textContent = l; dow.appendChild(sp); });
+
+  const grid = $('#calGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < lead; i++) {
+    const b = document.createElement('div');
+    b.className = 'calcell blank';
+    grid.appendChild(b);
+  }
+  for (let day = 1; day <= days; day++) {
+    const ds = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const b = document.createElement('button');
+    b.className = 'calcell'
+      + (ds === state.date ? ' sel' : '')
+      + (ds === today ? ' today' : '')
+      + (ds > today ? ' future' : '');
+    b.innerHTML = `<span>${day}</span>` + (marked.has(ds) ? '<i class="dot"></i>' : '');
+    b.setAttribute('aria-label', ds + (marked.has(ds) ? ' — has entries' : ''));
+    b.onclick = () => {
+      state.date = ds;
+      state.weekStart = mondayOf(ds);
+      closeSheets();
+      renderAll();
+      if (currentView === 'week') renderWeek();
+      toast(prettyDate(ds));
+    };
+    grid.appendChild(b);
+  }
+}
+
+function shiftCalMonth(delta) {
+  const [y, m] = calMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  calMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  renderCalendar();
 }
 
 /* =====================================================================
@@ -2036,6 +2381,8 @@ function closeSheets() {
   $('#portionSheet').classList.add('hidden');
   $('#foodSheet').classList.add('hidden');
   $('#scanSheet').classList.add('hidden');
+  $('#calSheet').classList.add('hidden');
+  finalPending = null;
   $('#nfSheet').classList.add('hidden');
   $('#aiSheet').classList.add('hidden');
   document.body.style.overflow = '';
@@ -2082,17 +2429,25 @@ function init() {
 
   $$('.tab').forEach(t => t.onclick = () => showView(t.dataset.view));
 
-  /* date nav — steps by week when the Week view is showing */
-  $('#prevDay').onclick = () => {
-    if (currentView === 'week') { state.weekStart = shiftDate(state.weekStart, -7); renderDate(); renderWeek(); }
-    else { state.date = shiftDate(state.date, -1); renderAll(); }
+  /* Date nav: a calendar for any date, and one tap back to today. No
+     step arrows — a stray tap on those was how entries landed on the
+     wrong day. */
+  $('#openCal').onclick = openCalendar;
+  $('.datewrap').onclick = openCalendar;
+  $('#calPrev').onclick = () => shiftCalMonth(-1);
+  $('#calNext').onclick = () => shiftCalMonth(1);
+  $('#calCancel').onclick = closeSheets;
+  $('#calToday').onclick = () => {
+    state.date = todayStr();
+    state.weekStart = mondayOf(state.date);
+    closeSheets();
+    renderAll();
+    if (currentView === 'week') renderWeek();
   };
-  $('#nextDay').onclick = () => {
-    if (currentView === 'week') { state.weekStart = shiftDate(state.weekStart, 7); renderDate(); renderWeek(); }
-    else { state.date = shiftDate(state.date, 1); renderAll(); }
+  $('#jumpToday').onclick = () => {
+    if (currentView === 'week') { state.weekStart = mondayOf(todayStr()); renderDate(); renderWeek(); }
+    else { state.date = todayStr(); renderAll(); }
   };
-  $('#datePicker').onchange = e => { if (e.target.value) { state.date = e.target.value; renderAll(); } };
-  $('.datewrap').onclick = () => { const d = $('#datePicker'); d.showPicker ? d.showPicker() : d.click(); };
 
   /* full breakdown */
   $('#toggleTotals').onclick = () => {
@@ -2106,9 +2461,35 @@ function init() {
   $('#bsCancel').onclick = closeSheets;
   $('#bsCum').oninput = () => $('#bsWarn').classList.add('hidden');
   $('#bsCum').onkeydown = e => { if (e.key === 'Enter') commitCheckin(); };
-  $('#bannerDismiss').onclick = () => {
-    pendingCheckpoints().forEach(cp => bannerDismissed.add(cp.k));
-    renderBanner();
+  $('#addCheckin').onclick = () => openCheckin(state.date, null);
+  $('#bannerSave').onclick = commitBannerCheckin;
+  $('#bannerCum').onkeydown = e => { if (e.key === 'Enter') commitBannerCheckin(); };
+  $('#bannerDismiss').onclick = () => { bannerDismissed = true; renderBanner(); };
+  $('#finalSave').onclick = commitFinal;
+  $('#finalCum').onkeydown = e => { if (e.key === 'Enter') commitFinal(); };
+  $('#finalDismiss').onclick = () => {
+    if (finalTarget) finalDismissed.add(finalTarget);
+    renderFinalBanner();
+  };
+  $('#adviceRawBtn').onclick = () => {
+    const box = $('#adviceRaw'), open = box.classList.toggle('hidden');
+    $('#adviceRawBtn').textContent = open ? 'Show raw model response' : 'Hide raw model response';
+  };
+
+  /* feature toggles */
+  $('#featBurn').onchange = e => {
+    features.burn = e.target.checked;
+    saveFeatures();
+    renderAll();
+    if (currentView === 'week') renderWeek();
+    toast(features.burn ? 'Burn tracking on' : 'Burn tracking hidden — nothing deleted');
+  };
+  $('#featAi').onchange = e => {
+    features.ai = e.target.checked;
+    saveFeatures();
+    applyFeatures();
+    renderAdvice();
+    toast(features.ai ? 'AI features on' : 'AI features hidden — your key is kept');
   };
   $('#adviceAgain').onclick = () => {
     const slot = currentAdviceSlot(state.date);
@@ -2224,7 +2605,7 @@ function init() {
     if (state.date < todayStr()) {
       state.date = todayStr();
       state.weekStart = mondayOf(state.date);
-      bannerDismissed.clear();
+      bannerDismissed = false;
     }
     renderAll();
   });
