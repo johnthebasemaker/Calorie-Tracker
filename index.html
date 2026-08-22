@@ -255,8 +255,26 @@
       <label class="field"><span>Fat (g)</span><input type="number" inputmode="numeric" id="tF"></label>
       <label class="field"><span>Water (ml)</span><input type="number" inputmode="numeric" id="tW"></label>
       <p class="hint" id="macroCheck"></p>
+
+      <button class="expand" id="toggleNutTargets" aria-expanded="false" aria-controls="nutTargets">
+        <span>Other nutrients</span><i class="caret" aria-hidden="true">▾</i>
+      </button>
+      <div class="hidden" id="nutTargets">
+        <p class="hint">General reference values for a healthy adult male, not personal ones. Fibre,
+          calcium and iron are minimums to reach; sugar, sodium and cholesterol are limits to stay under.</p>
+        <label class="field"><span>Fibre (g, min)</span><input type="number" inputmode="numeric" id="tFb"></label>
+        <label class="field"><span>Sugar (g, max)</span><input type="number" inputmode="numeric" id="tSg"></label>
+        <label class="field"><span>Sodium (mg, max)</span><input type="number" inputmode="numeric" id="tNa"></label>
+        <label class="field"><span>Cholesterol (mg, max)</span><input type="number" inputmode="numeric" id="tCh"></label>
+        <label class="field"><span>Calcium (mg, min)</span><input type="number" inputmode="numeric" id="tCa"></label>
+        <label class="field"><span>Iron (mg, min)</span><input type="number" inputmode="numeric" id="tFe"></label>
+        <p class="hint">The sugar figure is the added-sugar guideline, but only total sugars are on
+          record — so milk, dates and fruit count against it. Raise it to about 90 g if you would
+          rather the flag tracked total sugars.</p>
+      </div>
+
       <button class="wide" id="saveTargets">Save targets</button>
-      <button class="wide ghost" id="resetTargets">Reset to 2900 / 130 / 390 / 90 / 3500</button>
+      <button class="wide ghost" id="resetTargets">Reset all targets to the defaults</button>
     </div>
 
     <div id="aiSettingsWrap">

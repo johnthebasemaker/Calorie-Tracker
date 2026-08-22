@@ -117,9 +117,17 @@ and the weekly food view stays.
 
 **Meal suggestions.** Saving a reading automatically asks the model what to eat
 next, given your remaining calories and protein, everything logged so far with
-times, your burn/eaten balance, and 55 foods from your own library with their
-per-100 g values. It's told to name only foods from that list, so you get "add
-150 g chicken breast and 3 idli with sambar" rather than generic advice.
+times, your burn/eaten balance, all six extra nutrients against their targets,
+and 55 foods from your own library with their per-100 g values. It's told to name
+only foods from that list, so you get "add 150 g chicken breast and 3 idli with
+sambar" rather than generic advice.
+
+The nutrient lines spell out the direction and the verdict — `Fibre: 2 g (aim for
+at least 30 g) — well under the minimum` — so the model isn't left to guess
+whether 2600 mg of sodium is good news. A nutrient nothing reported is stated as
+missing rather than as zero, and the model is told explicitly not to call that a
+deficiency. It's asked to work one nutrient gap into the same sentence, not to
+list all six.
 
 Read-only — it never saves anything, so there's no confirm step. Each suggestion
 is cached against the reading that triggered it, so re-opening the app doesn't
@@ -157,8 +165,27 @@ same thing updates it instead of making a duplicate. AI-sourced foods carry an
 
 Set it up in **Settings → AI estimation**: paste an OpenRouter key and tap **Test
 connection**, which runs one real estimate on boiled rice and tells you whether
-the answer is sane. The default model is `openai/gpt-oss-20b:free`; any OpenRouter
-model id works.
+the answer is sane.
+
+The default model is **`openrouter/free`** — OpenRouter's own router, which picks
+an available free model per request based on the features asked for. Individual
+`:free` slugs get pulled without notice: `openai/gpt-oss-20b:free` was the default
+here until it started returning *"This model is unavailable for free"* and
+disappeared from the model list entirely. Of the free slugs available at the time
+of writing, most do not support structured outputs at all, so pinning a named one
+and hoping is the fragile choice, not the safe one.
+
+A saved model matching a retired default is moved forward automatically, and the
+app says so in Settings and in a toast rather than changing it behind your back.
+If a model you pinned yourself is later retired, that exact 404 is recognised and
+the message names it — *"Your selected model, X, is no longer free — switched to
+openrouter/free"* — instead of a generic failure. The field stays editable, so
+pinning a specific model is still yours to do.
+
+Because the router can land on a model without structured-output support, a
+refusal of `response_format` — as a 400, or as a 404 saying no endpoint supports
+it — drops the strict format and asks again in plain prose, which the fenced-JSON
+and messy-output parsers already handle.
 
 Your key lives in this browser's localStorage and nowhere else. It is not in the
 repo, and it is deliberately **excluded from backup exports** — a backup file
@@ -212,6 +239,28 @@ calcium and iron only where the value is well established.
 A missing value shows as **—**, never as 0 — so an unknown sodium and a genuine
 zero are never confused. In the daily breakdown, a count like `(3/6)` means only 3
 of the 6 foods you logged reported that nutrient, so the true total is higher.
+
+Each of the six carries a daily target, shown inside **Full breakdown** rather than
+on the main Today screen. Fibre, calcium and iron are minimums to reach; sugar,
+sodium and cholesterol are limits to stay under. Only the two states worth acting
+on — **OVER** a limit, **UNDER** a minimum — get colour, so a glance finds the
+problem instead of reading six badges. A nutrient nothing reported has no state at
+all, because "no data" and "below the minimum" are different claims.
+
+Defaults are general adult male reference values: fibre 30 g, sugar 36 g, sodium
+2300 mg, cholesterol 300 mg, calcium 1000 mg, iron 8 mg. Iron is 8 mg because that
+is the adult male RDA — 18 mg is the figure for menstruating women. Edit any of
+them under Settings → Daily targets → **Other nutrients**, or clear one to switch
+its flag off.
+
+**One honest caveat on sugar.** 36 g is the *added* sugar guideline, but the only
+data available anywhere — Open Food Facts and the seed table alike — is *total*
+sugars. So the lactose in milk and the sugar in dates and fruit all count against
+it, and a genuinely good day can read OVER: idli, chickpeas, 500 ml of milk and a
+handful of almonds lands at 38 g. That is the deliberate trade for a target that
+means something nutritionally. Raise it to about 90 g in Settings if you would
+rather the flag tracked total sugars, and the note under the grid says which you
+are looking at.
 
 **Portions.** Every food has grams plus household portions — *1 idli · 45 g*,
 *1 plate · 400 g*, *3 dates · 24 g*. Everything recalculates live as you change

@@ -44,21 +44,62 @@ const SEG_NAMES = {
 /* OpenRouter is OpenAI-compatible and returns access-control-allow-origin: *,
    so the browser can call it directly from the Pages origin with no proxy. */
 const AI_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-const AI_DEFAULT_MODEL = 'openai/gpt-oss-20b:free';
 
-const DEFAULT_TARGETS = { kcal: 2900, p: 130, c: 390, f: 90, water: 3500 };
+/* OpenRouter's own free-model router. Individual ":free" slugs get pulled
+   without notice — openai/gpt-oss-20b:free was the default here until it
+   returned 404 "unavailable for free" and vanished from the model list.
+   openrouter/free picks a currently-available free model per request based
+   on the features asked for, so nothing here needs editing when one rotates
+   out. It advertises response_format and structured_outputs, and the field
+   in Settings still accepts any slug for pinning a specific model. */
+const AI_DEFAULT_MODEL = 'openrouter/free';
+
+/* Defaults that earlier versions shipped. A saved value matching one of
+   these is a default the user never chose, so it is safe to move forward
+   silently; anything else was typed deliberately and is left alone. */
+const AI_RETIRED_DEFAULTS = ['openai/gpt-oss-20b:free'];
+
+/* General reference values for a healthy adult male, not personal ones —
+   Phase 3 is where these get tailored. Iron is 8 mg because that is the
+   adult male RDA; 18 mg is the figure for menstruating women and would be
+   the wrong bar here. Sugar is deliberately the added-sugar guideline even
+   though the app can only measure total sugars — see MICROS below. */
+const DEFAULT_TARGETS = {
+  kcal: 2900, p: 130, c: 390, f: 90, water: 3500,
+  fb: 30, sg: 36, na: 2300, ch: 300, ca: 1000, fe: 8,
+};
 
 /* Extra nutrients, in display order. Stored per 100 g on the food, and
    snapshotted onto each log entry so history never shifts. A missing key
-   means "not known" and renders as "—" — never as zero. */
+   means "not known" and renders as "—" — never as zero.
+
+   `dir` is which way the target runs: 'max' for something to stay under,
+   'min' for something to reach. `note` explains a target that needs it. */
 const MICROS = [
-  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1 },
-  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1 },
-  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0 },
-  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0 },
-  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0 },
-  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1 },
+  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1, dir: 'min' },
+  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1, dir: 'max',
+    note: 'added-sugar target, measured against total sugars' },
+  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0, dir: 'max' },
+  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0, dir: 'max' },
+  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0, dir: 'min' },
+  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1, dir: 'min' },
 ];
+
+/* Where a day's figure sits against its target. Only ever called with a
+   known total — an unreported nutrient has no state at all, because "no
+   data" and "under the minimum" are different things. */
+function microState(m, value) {
+  const target = state.targets[m.k];
+  if (!(target > 0)) return { cls: '', label: '' };
+  if (m.dir === 'max') {
+    if (value > target) return { cls: 'over',  label: 'over' };
+    if (value >= target * 0.8) return { cls: 'near', label: 'close' };
+    return { cls: 'ok', label: '' };
+  }
+  if (value >= target) return { cls: 'ok', label: 'met' };
+  if (value >= target * 0.7) return { cls: 'near', label: 'low' };
+  return { cls: 'under', label: 'under' };
+}
 
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
@@ -94,6 +135,7 @@ function load() {
   state.water   = readJSON(KEY.water, []);
   state.names   = readJSON(KEY.names, {});
   state.ai      = Object.assign({ key: '', model: AI_DEFAULT_MODEL }, readJSON(KEY.ai, {}));
+  migrateRetiredModel();
   state.burn    = readJSON(KEY.burn, []);
   state.advice  = readJSON(KEY.advice, {});
 
@@ -106,6 +148,18 @@ function load() {
     : { burn: state.burn.length > 0, ai: !!(state.ai.key || '').trim() };
   if (!stored) saveFeatures();
 }
+/* Set when a retired default is moved forward, so the user is told once
+   rather than silently having their model changed under them. */
+let modelMigratedFrom = '';
+
+function migrateRetiredModel() {
+  const cur = (state.ai.model || '').trim();
+  if (!cur || !AI_RETIRED_DEFAULTS.includes(cur)) return;
+  state.ai.model = AI_DEFAULT_MODEL;
+  modelMigratedFrom = cur;
+  saveAi();
+}
+
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
@@ -524,31 +578,63 @@ function renderTotalsMicros() {
   const totals = microTotalsFor(state.date);
   const grid = $('#totalsMicroGrid');
   grid.innerHTML = '';
-  let partial = false;
+  let partial = false, flagged = [];
 
   MICROS.forEach(m => {
     const s = totals[m.k];
     const known = s.have > 0;
-    const isPartial = known && s.have < s.total;
+    /* Any nutrient not reported by every food is a gap — including one no
+       food reported at all, which the old check missed because it only
+       looked at nutrients that had some data. That left the card showing
+       "—" for calcium while the note claimed all six were reported. */
+    const isPartial = s.total > 0 && s.have < s.total;
     if (isPartial) partial = true;
 
+    const target = state.targets[m.k];
+    /* No state without data. An unreported sodium is not a low sodium, and
+       colouring it green would be a lie the rest of this card avoids. */
+    const st = known ? microState(m, s.sum) : { cls: '', label: '' };
+    if (known && (st.cls === 'over' || st.cls === 'under')) flagged.push(m);
+
     const cell = document.createElement('div');
+    cell.className = st.cls ? 'micro-' + st.cls : '';
     cell.innerHTML = `
       <b class="${known ? '' : 'none'}">${known ? microFmt(s.sum, m) : '—'}${known ? ` <small>${m.unit}</small>` : ''}</b>
-      <span>${m.label}${isPartial ? ` (${s.have}/${s.total})` : ''}</span>`;
+      <span>${m.label}${isPartial && known ? ` (${s.have}/${s.total})` : ''}</span>
+      ${target > 0 ? `<em>${m.dir === 'max' ? 'max' : 'aim'} ${microFmt(target, m)}</em>` : ''}
+      ${st.label ? `<i>${st.label}</i>` : ''}`;
     grid.appendChild(cell);
   });
 
   const note = $('#totalsMicroNote');
+  const bits = [];
+
   if (!entriesFor(state.date).length) {
-    note.textContent = 'Log some food to see the full breakdown.';
-  } else if (partial) {
-    note.textContent = 'A count like (3/6) means only 3 of the 6 foods logged reported that nutrient, '
-      + 'so the real total is higher. Fill gaps in the Foods tab.';
+    bits.push('Log some food to see the full breakdown.');
   } else {
-    note.textContent = 'Every food logged today reported all six.';
+    if (flagged.length) {
+      const over  = flagged.filter(m => m.dir === 'max').map(m => m.label.toLowerCase());
+      const under = flagged.filter(m => m.dir === 'min').map(m => m.label.toLowerCase());
+      if (over.length)  bits.push(`Over on ${listWords(over)}.`);
+      if (under.length) bits.push(`Still short on ${listWords(under)}.`);
+    }
+    if (partial) {
+      bits.push('A count like (3/6) means only 3 of the 6 foods logged reported that nutrient, and '
+        + '"—" means none did — so a real total is higher than shown, and an "under" may not be real.');
+    } else {
+      bits.push('Every food logged today reported all six.');
+    }
+    /* The sugar bar is an added-sugar guideline but the only data available
+       is total sugars, so milk, dates and fruit all count against it. Saying
+       so beats an unexplained red box on an otherwise sensible day. */
+    bits.push('Targets are general adult reference values. The sugar limit is the added-sugar '
+      + 'guideline, but only total sugars are on record — so milk, dates and fruit count towards it.');
   }
+  note.textContent = bits.join(' ');
 }
+
+const listWords = a => a.length <= 1 ? (a[0] || '')
+  : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 
 function renderWater() {
   const total = waterTotal(state.date), tgt = state.targets.water || 0;
@@ -1707,6 +1793,59 @@ function coerceEstimate(raw) {
 
 /* ------------------------------ the call ------------------------------ */
 
+/* Read the body as text first: OpenRouter's edge sometimes answers with an
+   HTML page rather than JSON, and res.json() would throw that away along
+   with the only clue about what went wrong. */
+async function readErrorBody(res) {
+  let body = '', detail = '';
+  try { body = await res.text(); } catch {}
+  try {
+    const j = JSON.parse(body);
+    detail = (j.error && (j.error.message || j.error.code)) || j.message || '';
+  } catch {}
+  return { body, detail };
+}
+
+function shouldRetryWithoutFormat(status, detail) {
+  if (status === 400 || status === 422) return true;
+  /* openrouter/free routes per request, so "no free model supports structured
+     outputs right now" is a 404 rather than a 400. Same remedy: ask in prose. */
+  return status === 404
+    && /structured|response_format|json.?schema|no endpoints/i.test(String(detail || ''));
+}
+
+/* OpenRouter's wording when a free slug is pulled, as reported from the live
+   app: "This model is unavailable for free. The paid version is available
+   now - use this slug instead: openai/gpt-oss-20b."
+   Not reproducible here — OpenRouter checks the key before the model slug,
+   so without a valid key every request 401s first. Matched loosely on the
+   distinctive phrases rather than the exact sentence. */
+function retiredModelInfo(status, detail) {
+  if (status !== 404) return null;
+  const text = String(detail || '');
+  if (!/unavailable for free|no longer free|use this slug instead/i.test(text)) return null;
+  const m = text.match(/use this slug instead:\s*([A-Za-z0-9._\/:-]+)/i);
+  return { paidSlug: m ? m[1].replace(/[.,]+$/, '') : '' };
+}
+
+/* Put the setting back on the router that cannot be retired. Returns whether
+   anything actually changed, so the message can say so. */
+function healRetiredModel(failed) {
+  if ((state.ai.model || '').trim() === AI_DEFAULT_MODEL) return false;
+  state.ai.model = AI_DEFAULT_MODEL;
+  saveAi();
+  syncModelField();
+  console.warn('[Macros] model', failed, 'is no longer free — switched to', AI_DEFAULT_MODEL);
+  return true;
+}
+
+/* Only the model row, not the whole settings form — the user may be part-way
+   through editing a target when this fires. */
+function syncModelField() {
+  const el = $('#aiModel');
+  if (el) el.value = state.ai.model;
+}
+
 /* Shared transport for both AI features: nutrition estimates and meal
    suggestions. Returns the raw assistant text plus the model that answered. */
 async function aiChat(system, user, { timeout = 30000, json = false, maxTokens = 700,
@@ -1746,30 +1885,41 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
       : body),
   });
 
-  try {
-    /* Not every model on OpenRouter accepts response_format, so fall back
-       to plain prompting rather than failing the whole request. */
-    let res = await send(json);
-    if (json && (res.status === 400 || res.status === 422)) res = await send(false);
+  aiChat.lastDroppedFormat = false;
 
-    if (!res.ok) {
-      /* Read the body as text first: OpenRouter's edge sometimes answers with
-         an HTML page rather than JSON, and res.json() would throw that away
-         along with the only clue about what went wrong. */
-      let body = '', detail = '';
-      try { body = await res.text(); } catch {}
-      try {
-        const j = JSON.parse(body);
-        detail = (j.error && (j.error.message || j.error.code)) || j.message || '';
-      } catch {}
+  try {
+    let res = await send(json);
+    let info = res.ok ? null : await readErrorBody(res);
+
+    /* Not every model accepts response_format, and openrouter/free can route
+       to one that does not — drop the strict format and ask in plain prose,
+       which the lenient parsers downstream are built to handle. */
+    if (info && json && shouldRetryWithoutFormat(res.status, info.detail)) {
+      res = await send(false);
+      info = res.ok ? null : await readErrorBody(res);
+      aiChat.lastDroppedFormat = true;
+    }
+
+    if (info) {
+      const { body, detail } = info;
+      const retired = retiredModelInfo(res.status, detail);
 
       const e = new Error(detail || ('HTTP ' + res.status));
-      e.code = res.status === 401 || res.status === 403 ? 'auth'
-             : res.status === 402 ? 'credits'
-             : res.status === 429 ? 'rate'
-             : res.status === 400 || res.status === 404 ? 'badreq'
-             : res.status >= 500 ? 'upstream'
-             : 'http';
+      if (retired) {
+        /* A free slug that has been pulled. Move the setting forward rather
+           than leaving the user to work out what a 404 means. */
+        e.code = 'retired';
+        e.retiredModel = model;
+        e.paidSlug = retired.paidSlug;
+        e.switched = healRetiredModel(model);
+      } else {
+        e.code = res.status === 401 || res.status === 403 ? 'auth'
+               : res.status === 402 ? 'credits'
+               : res.status === 429 ? 'rate'
+               : res.status === 400 || res.status === 404 ? 'badreq'
+               : res.status >= 500 ? 'upstream'
+               : 'http';
+      }
       e.status = res.status;
       e.detail = detail;
       e.retryAfter = res.headers.get('retry-after') || '';
@@ -1877,6 +2027,11 @@ function aiErrorText(err) {
         + (err.retryAfter ? ' Try again in ' + err.retryAfter + ' seconds.'
                           : ' Free models allow only a few calls a minute, and a limited number a day.')
         + said;
+    case 'retired':
+      return 'Your selected model, ' + (err.retiredModel || 'the saved one') + ', is no longer free'
+        + (err.switched ? ' — switched to ' + AI_DEFAULT_MODEL + '. Try again.'
+                        : '. Set the model in Settings to ' + AI_DEFAULT_MODEL + '.')
+        + (err.paidSlug ? ' (A paid version, ' + err.paidSlug + ', is still available if you add credit.)' : '');
     case 'badreq':
       return 'OpenRouter refused the request' + status + '.' + said
         + ' The model id in Settings is the usual cause — check it is spelled exactly as on openrouter.ai.';
@@ -2093,6 +2248,12 @@ const ADVICE_SYSTEM = [
   '- Name specific foods FROM THE PROVIDED LIBRARY ONLY, with a realistic gram amount',
   '  or household portion. Never invent a food that is not on the list.',
   '- Lead with the gap that matters most: remaining protein first, then remaining calories.',
+  '- You are also given fibre, sugar, sodium, cholesterol, calcium and iron for the day. If one is',
+  '  clearly OVER a limit or well under a minimum, work it into the same sentence by choosing a food',
+  '  that helps — dal or vegetables for fibre, curd or milk for calcium. Do not list them or add a',
+  '  second piece of advice about them.',
+  '- A nutrient marked "not reported" is missing data, not a deficiency. Never tell them they are low',
+  '  on something no food reported.',
   '- If they are already over both targets, say so plainly and suggest stopping or something light.',
   '- Plain sentences. No preamble, no bullet points, no markdown, no emoji, no sign-off.',
 ].join('\n');
@@ -2129,12 +2290,39 @@ function advicePrompt(d, slotMin) {
       ? `Burned so far (Apple Health): ${r0(burned)} kcal. Balance eaten minus burned: ${signed(t.kcal - burned)} kcal.`
       : 'Burned so far: not recorded yet.',
     '',
+    'Other nutrients so far today (against general adult targets):',
+    microLinesForPrompt(d),
+    '',
     'Eaten today:',
     eatenList,
     '',
     'Food library (per 100 g):',
     libraryForPrompt(),
   ].join('\n');
+}
+
+/* One line per nutrient, spelling out the direction and the state so the
+   model does not have to infer whether 2600 mg of sodium is good or bad.
+   Nutrients nothing reported are said to be unknown rather than shown as
+   zero, otherwise the model reads a quiet day as a deficiency. */
+function microLinesForPrompt(d) {
+  const totals = microTotalsFor(d);
+  return MICROS.map(m => {
+    const s = totals[m.k], target = state.targets[m.k];
+    const aim = target > 0
+      ? ` (${m.dir === 'max' ? 'stay under' : 'aim for at least'} ${microFmt(target, m)} ${m.unit})`
+      : '';
+    if (!s.have) return `- ${m.label}: not reported by any food logged${aim}`;
+
+    const st = microState(m, s.sum);
+    const verdict = !target ? ''
+      : st.cls === 'over'  ? ' — OVER the limit'
+      : st.cls === 'under' ? ' — well under the minimum'
+      : st.cls === 'near'  ? (m.dir === 'max' ? ' — close to the limit' : ' — a little short')
+      : m.dir === 'max' ? ' — fine' : ' — target met';
+    const partial = s.have < s.total ? `, from only ${s.have} of ${s.total} foods so the real figure is higher` : '';
+    return `- ${m.label}: ${microFmt(s.sum, m)} ${m.unit}${aim}${verdict}${partial}`;
+  }).join('\n');
 }
 
 /* Keys a model might wrap prose in when it decides to answer with JSON
@@ -2314,12 +2502,18 @@ function renderLibrary() {
    SETTINGS
    ===================================================================== */
 
+/* Micro key -> its Settings input. Derived from MICROS so adding a nutrient
+   means touching one list, not three. */
+const MICRO_TARGET_IDS = {};
+MICROS.forEach(m => { MICRO_TARGET_IDS[m.k] = '#t' + m.k[0].toUpperCase() + m.k[1]; });
+
 function renderSettings() {
   $('#tKcal').value = state.targets.kcal;
   $('#tP').value = state.targets.p;
   $('#tC').value = state.targets.c;
   $('#tF').value = state.targets.f;
   $('#tW').value = state.targets.water;
+  MICROS.forEach(m => { $(MICRO_TARGET_IDS[m.k]).value = state.targets[m.k]; });
   $('#aiKey').value = state.ai.key || '';
   $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
   renderAiStatus();
@@ -2330,9 +2524,13 @@ function renderAiStatus(msg) {
   const el = $('#aiStatus');
   if (msg) { el.textContent = msg; return; }
   const k = (state.ai.key || '').trim();
-  el.textContent = k
+  /* A model swapped out from under you deserves saying so, once. */
+  const moved = modelMigratedFrom
+    ? `Your saved model ${modelMigratedFrom} was retired by OpenRouter and has been switched to ${AI_DEFAULT_MODEL}. `
+    : '';
+  el.textContent = moved + (k
     ? `Key saved on this device (…${k.slice(-4)}). Test it to be sure it works.`
-    : 'No key saved — “Estimate with AI” will tell you to come back here.';
+    : 'No key saved — “Estimate with AI” will tell you to come back here.');
 }
 
 async function testAiKey() {
@@ -2360,13 +2558,18 @@ function checkTargetMath() {
 }
 
 function persistTargets() {
-  state.targets = {
+  const micro = {};
+  /* 0 or blank means "no target": microState skips it and the cell just shows
+     the number, which is what the app did before targets existed. */
+  MICROS.forEach(m => { micro[m.k] = Math.max(0, +$(MICRO_TARGET_IDS[m.k]).value || 0); });
+
+  state.targets = Object.assign(micro, {
     kcal:  Math.max(0, +$('#tKcal').value || 0),
     p:     Math.max(0, +$('#tP').value || 0),
     c:     Math.max(0, +$('#tC').value || 0),
     f:     Math.max(0, +$('#tF').value || 0),
     water: Math.max(0, +$('#tW').value || 0),
-  };
+  });
   saveTargets();
   renderSummary();
   renderWater();
@@ -2636,6 +2839,10 @@ function init() {
     totalsOpen = !totalsOpen;
     setExpanded($('#toggleTotals'), $('#totalsMicros'), totalsOpen);
   };
+  $('#toggleNutTargets').onclick = () => {
+    const open = $('#toggleNutTargets').getAttribute('aria-expanded') !== 'true';
+    setExpanded($('#toggleNutTargets'), $('#nutTargets'), open);
+  };
 
   /* burn check-ins */
   $('#bsSave').onclick = commitCheckin;
@@ -2803,6 +3010,12 @@ function init() {
   const isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isLocal) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  /* Say it out loud as well as in Settings — a model changing under you is
+     not something to find out from a failed suggestion. */
+  if (modelMigratedFrom) {
+    setTimeout(() => toast(`${modelMigratedFrom} was retired — model switched to ${AI_DEFAULT_MODEL}`), 400);
   }
 }
 
