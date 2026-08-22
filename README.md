@@ -41,14 +41,29 @@ and Cloudflare Pages both serve it free over HTTPS.
 
 ## How it works
 
-**Adding food.** Type a name in the Add tab. Your own library (110+ pre-seeded
-South Indian, Gulf, and protein-staple foods) matches instantly and appears
+**Adding food.** Type a name in the Add tab. Your own library (120+ pre-seeded
+South Indian, Gulf, drink and protein-staple foods) matches instantly and appears
 first. Open Food Facts is queried in parallel for packaged and branded items and
 appears under "Packaged foods". Nothing found? Tap *Add "…" manually*, enter the
 per-100 g values once, and it's in your library forever.
 
 Local-first rather than strictly OFF-first: for idli or kabsa the local hit is
 both faster and more accurate, and you still see every packaged match below it.
+
+**Why the fizzy drinks are seeded.** Open Food Facts' search server goes down
+for minutes at a time, often enough that a can of Mirinda was simply unfindable
+when it did. So Pepsi, Coca-Cola, Mountain Dew, Mirinda, 7UP, the zero-sugar
+versions, Barbican, Rani, orange juice and Red Bull are in the local library
+with per-100 ml label values, and match with no network at all. A can with a
+shift meal is the easiest 150 kcal in the day to miss.
+
+The packaged search itself asks OFF to rank by scan count and requests three
+times as many rows as it shows. Both matter: unranked, "mountain dew" led with
+obscure regional entries carrying no nutrition data, which then got dropped for
+having no calories, and the actual bottle never made the visible eight. When a
+request does fail it is retried rather than given up on, because the failures
+are per-request rather than sticky, and the message says their server is down
+rather than implying your connection is.
 
 **Barcodes.** Tap **Scan** next to the search box to open the camera and point it
 at the barcode; it looks the product up automatically and drops you straight on
@@ -150,8 +165,16 @@ repo, and it is deliberately **excluded from backup exports** — a backup file
 tends to get emailed or synced around, and a leaked key is someone else spending
 your credit. The model name does travel in the backup; the key never does.
 
-**If a suggestion fails**, the card shows the raw model reply rather than a
-generic error, and the full response object is logged to the console. Reasoning
+**If a suggestion fails**, the message names the actual cause — the HTTP status
+and OpenRouter's own words. A rate limit says it is a rate limit and how long to
+wait; a bad model id says so; only a genuinely unreachable server blames the
+connection, and even then the app first checks whether openrouter.ai answers at
+all, so "reachable but refused" and "cannot reach it" are never confused. Both
+AI paths — meal suggestions and food estimates — share that one error mapper.
+
+A **Show raw model response** link under the message opens the exact reply, and
+the full response object is logged to the console. It starts collapsed; the raw
+JSON is only wanted when something has gone wrong. Reasoning
 models (`gpt-oss`, and most `:free` models worth using) spend tokens thinking
 before they answer, so the request sends `reasoning: {effort:'low'}` and a token
 budget with room for both; if the budget still runs out, the answer is recovered

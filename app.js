@@ -1344,34 +1344,14 @@ async function searchOFF(q) {
   offAbort = new AbortController();
 
   const barcode = /^\d{8,14}$/.test(term);
-  const urls = barcode
-    ? [`https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=${OFF_FIELDS}`]
-    : [
-        'https://world.openfoodfacts.org/cgi/search.pl'
-          + `?search_simple=1&action=process&json=1&page_size=12&fields=${OFF_FIELDS}`
-          + '&search_terms=' + encodeURIComponent(term),
-        /* Second door: the two search endpoints fail independently. */
-        'https://world.openfoodfacts.org/api/v2/search'
-          + `?page_size=12&fields=${OFF_FIELDS}`
-          + '&search_terms=' + encodeURIComponent(term),
-      ];
 
   try {
-    let data = null, lastErr = null;
-    for (const u of urls) {
-      try {
-        const res = await fetch(u, { signal: offAbort.signal });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        data = await res.json();
-        break;
-      } catch (e) {
-        if (e.name === 'AbortError') throw e;
-        lastErr = e;
-      }
-    }
-    if (!data) throw lastErr || new Error('no response');
+    const data = await offFetchJson(offSearchUrls(term, barcode), offAbort.signal);
 
-    const raw = barcode ? (data.product ? [data.product] : []) : (data.products || []);
+    const raw = barcode ? (data.product ? [data.product] : []) : (data.products || data.hits || []);
+    /* Ask for far more than we show: a good half of a beverage search is
+       crowd entries with no energy value at all, and offToFood drops those.
+       Filtering before the slice is what stops "mirinda" coming back empty. */
     const items = raw.map(offToFood).filter(Boolean).slice(0, 8);
 
     offCache.set(term.toLowerCase(), items);
@@ -1379,11 +1359,57 @@ async function searchOFF(q) {
   } catch (err) {
     if (err.name === 'AbortError') return;
     status.textContent = 'unavailable';
-    empty.textContent = 'Open Food Facts did not answer (offline, or too many searches in a minute). Your library and manual entry still work.';
+    /* Their server being down is a different problem from the food not
+       existing, and the wording has to say which — otherwise a 503 reads as
+       "this drink isn't in the database". */
+    empty.textContent = 'Open Food Facts did not answer — their search server is intermittently down, '
+      + 'and it is nothing to do with your connection. Retry below, or use manual entry or an AI estimate.';
     empty.classList.remove('hidden');
     retry.classList.remove('hidden');
-    retry.onclick = () => searchOFF(term);
+    retry.onclick = () => { offCache.delete(term.toLowerCase()); searchOFF(term); };
   }
+}
+
+/* The search endpoints on world.openfoodfacts.org share one backend, so a
+   "second door" to the same host is not really a fallback — measured, they
+   503 together. What does work is trying again: the failures are per-request,
+   not sticky. Hence the same URL twice, spaced out. */
+function offSearchUrls(term, barcode) {
+  const q = encodeURIComponent(term);
+  if (barcode) {
+    return [{ url: `https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=${OFF_FIELDS}` },
+            { url: `https://world.openfoodfacts.org/api/v2/product/${term}.json?fields=${OFF_FIELDS}`, waitFirst: 800 }];
+  }
+  const cgi = 'https://world.openfoodfacts.org/cgi/search.pl'
+    + `?search_simple=1&action=process&json=1&page_size=24&fields=${OFF_FIELDS}`
+    + '&search_terms=' + q;
+  return [
+    /* Popularity ranking matters more than it looks: unsorted, "mountain dew"
+       leads with obscure regional entries carrying no nutrition data, and the
+       actual bottle never makes the visible eight. */
+    { url: cgi + '&sort_by=unique_scans_n' },
+    { url: `https://world.openfoodfacts.org/api/v2/search?page_size=24&fields=${OFF_FIELDS}&search_terms=${q}` },
+    { url: cgi + '&sort_by=unique_scans_n', waitFirst: 900 },
+  ];
+}
+
+async function offFetchJson(attempts, signal) {
+  let lastErr = null;
+  for (const a of attempts) {
+    if (a.waitFirst) {
+      await new Promise(r => setTimeout(r, a.waitFirst));
+      if (signal.aborted) { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+    }
+    try {
+      const res = await fetch(a.url, { signal });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('no response');
 }
 
 function paintOFF(items) {
@@ -1542,11 +1568,17 @@ async function lookupBarcode(code) {
   }
 
   try {
-    const res = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`);
+    const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${OFF_FIELDS}`;
+    const res = await fetch(url);
+
+    /* 404 is the honest answer "no such barcode", not a failure — reporting
+       it as "could not reach Open Food Facts" sent me hunting a network
+       problem that was not there. */
+    if (res.status === 404) { openNotFound({ code }); return; }
     if (!res.ok) throw new Error('HTTP ' + res.status);
+
     const data = await res.json();
-    const food = data.product ? offToFood(data.product) : null;
+    const food = data.status === 0 || !data.product ? null : offToFood(data.product);
 
     if (!food) {
       openNotFound({ code });
@@ -1555,8 +1587,10 @@ async function lookupBarcode(code) {
     rememberOffFood(food);
     openPortion({ mode: 'add', food });
     if (food.needsRename) toast('No English name on file — tap Rename');
-  } catch {
-    toast('Could not reach Open Food Facts');
+  } catch (err) {
+    toast(err && /HTTP 5/.test(err.message || '')
+      ? 'Open Food Facts is down right now'
+      : 'Could not reach Open Food Facts');
     openNotFound({ code });
   } finally {
     scanBusy = false;
@@ -1719,14 +1753,27 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     if (json && (res.status === 400 || res.status === 422)) res = await send(false);
 
     if (!res.ok) {
-      let detail = '';
-      try { const j = await res.json(); detail = (j.error && (j.error.message || j.error.code)) || ''; } catch {}
+      /* Read the body as text first: OpenRouter's edge sometimes answers with
+         an HTML page rather than JSON, and res.json() would throw that away
+         along with the only clue about what went wrong. */
+      let body = '', detail = '';
+      try { body = await res.text(); } catch {}
+      try {
+        const j = JSON.parse(body);
+        detail = (j.error && (j.error.message || j.error.code)) || j.message || '';
+      } catch {}
+
       const e = new Error(detail || ('HTTP ' + res.status));
       e.code = res.status === 401 || res.status === 403 ? 'auth'
              : res.status === 402 ? 'credits'
              : res.status === 429 ? 'rate'
+             : res.status === 400 || res.status === 404 ? 'badreq'
+             : res.status >= 500 ? 'upstream'
              : 'http';
       e.status = res.status;
+      e.detail = detail;
+      e.retryAfter = res.headers.get('retry-after') || '';
+      e.raw = `HTTP ${res.status} ${res.statusText}\n\n` + (body || '(empty body)').slice(0, 3000);
       throw e;
     }
 
@@ -1757,11 +1804,41 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     }
     return text;
   } catch (err) {
-    if (err.name === 'AbortError') { const e = new Error('timeout'); e.code = 'timeout'; throw e; }
-    if (!err.code) err.code = /Failed to fetch|NetworkError|Load failed/i.test(err.message || '') ? 'network' : 'unknown';
+    if (err.name === 'AbortError') {
+      const e = new Error('timeout');
+      e.code = 'timeout';
+      e.seconds = Math.round(timeout / 1000);
+      throw e;
+    }
+    if (!err.code) {
+      err.code = /Failed to fetch|NetworkError|Load failed/i.test(err.message || '')
+        ? await classifyNetworkFailure() : 'unknown';
+    }
     throw err;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/* A fetch that never completes throws the identical "Failed to fetch" whether
+   the phone is offline, a blocker ate the request, or OpenRouter answered
+   without CORS headers (which is how their edge rate-limiter shows up in a
+   browser). Probing a public CORS-enabled endpoint separates those, so the
+   message can say what actually happened instead of blaming the connection. */
+async function classifyNetworkFailure() {
+  if (navigator.onLine === false) return 'offline';
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/models?limit=1',
+      { signal: ctrl.signal, cache: 'no-store' });
+    /* Any answer at all means the host is up and CORS is fine from here, so
+       the failed call was refused rather than unreachable. */
+    return r ? 'blocked' : 'network';
+  } catch {
+    return 'network';
+  } finally {
+    clearTimeout(t);
   }
 }
 
@@ -1778,17 +1855,59 @@ async function aiRequest(description, { timeout = 30000 } = {}) {
   return est;
 }
 
+/* Say what actually failed. Every branch that has one carries the HTTP status
+   and OpenRouter's own words, because "check your connection" sent me looking
+   at the wrong thing for a rate limit. */
 function aiErrorText(err) {
-  switch (err && err.code) {
-    case 'nokey':   return 'No API key yet. Settings → AI estimation → paste your OpenRouter key.';
-    case 'auth':    return 'OpenRouter rejected the key. Check it in Settings, or generate a new one.';
-    case 'credits': return 'That key is out of credit. Add credit on openrouter.ai, or switch to a “:free” model in Settings.';
-    case 'rate':    return 'Rate limited — free OpenRouter models allow only a few calls a minute. Wait a moment and try again.';
-    case 'truncated': return 'The model used its whole token budget thinking and never wrote an answer. Raising the limit or lowering reasoning effort usually fixes it — try again, or pick a different model in Settings.';
-    case 'timeout': return 'The model took too long. Try again, or pick a faster model in Settings.';
-    case 'network': return 'Could not reach OpenRouter. Check your connection.';
-    case 'parse':   return 'The model replied with something unreadable. Try again, or use a different model in Settings.';
-    default:        return 'Estimate failed: ' + ((err && err.message) || 'unknown error') + '.';
+  const code = err && err.code;
+  const said = err && err.detail ? ' OpenRouter said: “' + err.detail + '”.' : '';
+  const status = err && err.status ? ' (HTTP ' + err.status + ')' : '';
+
+  switch (code) {
+    case 'nokey':
+      return 'No API key yet. Settings → AI estimation → paste your OpenRouter key.';
+    case 'auth':
+      return 'OpenRouter rejected the key' + status + '.' + said
+        + ' Check it in Settings, or generate a new one.';
+    case 'credits':
+      return 'That key is out of credit' + status + '.' + said
+        + ' Add credit on openrouter.ai, or switch to a “:free” model in Settings.';
+    case 'rate':
+      return 'Rate limited by OpenRouter' + status + '.'
+        + (err.retryAfter ? ' Try again in ' + err.retryAfter + ' seconds.'
+                          : ' Free models allow only a few calls a minute, and a limited number a day.')
+        + said;
+    case 'badreq':
+      return 'OpenRouter refused the request' + status + '.' + said
+        + ' The model id in Settings is the usual cause — check it is spelled exactly as on openrouter.ai.';
+    case 'upstream':
+      return 'OpenRouter or the model provider had a server error' + status + '.' + said
+        + ' Not your key or your connection — wait a moment and try again.';
+    case 'http':
+      return 'OpenRouter returned an unexpected response' + status + '.' + said;
+
+    case 'offline':
+      return 'This device is offline — the request never left the phone. Reconnect and try again.';
+    case 'blocked':
+      return 'openrouter.ai is reachable from here, but this request came back with nothing. '
+        + 'That is almost always the free-tier rate limit, or a VPN / content blocker filtering the API. '
+        + 'Wait a minute and try again.';
+    case 'network':
+      return 'Could not reach openrouter.ai at all — the server never answered. '
+        + 'Check your connection, VPN, or any content blocker.';
+
+    case 'timeout': {
+      const secs = (err && err.seconds) || 30;
+      return 'The model took longer than ' + secs + (secs === 1 ? ' second' : ' seconds')
+        + ' and the request was given up on. Try again, or pick a faster model in Settings.';
+    }
+    case 'truncated':
+      return 'The model used its whole token budget thinking and never wrote an answer. '
+        + 'Raising the limit or lowering reasoning effort usually fixes it — try again, or pick a different model in Settings.';
+    case 'parse':
+      return 'The model replied with something unreadable. Try again, or use a different model in Settings.';
+    default:
+      return 'Failed: ' + ((err && err.message) || 'unknown error') + '.';
   }
 }
 
@@ -1796,6 +1915,11 @@ function aiErrorText(err) {
 
 let aiCtx = { code: null, term: '' };   // what we are estimating for
 let aiInFlight = false;
+/* Bumped by every dismiss. A request that comes back after its sheet was
+   cancelled compares generations and drops its result instead of yanking a
+   sheet back open under the user. */
+let aiGen = 0;
+let aiRawText = '';                     // last failed reply, for the debug view
 
 /* Barcode or search miss: offer manual entry and AI side by side. */
 function openNotFound({ code, term }) {
@@ -1811,6 +1935,7 @@ function openAiDescribe({ code, term }) {
   $('#aiDesc').value = aiCtx.term || '';
   $('#aiError').classList.add('hidden');
   $('#aiLoading').classList.add('hidden');
+  resetRawToggle('#aiRawBtn', '#aiRaw');
   $('#aiGo').disabled = false;
 
   const model = (state.ai.model || AI_DEFAULT_MODEL);
@@ -1827,24 +1952,35 @@ async function runAiEstimate() {
   const desc = $('#aiDesc').value.trim();
   if (desc.length < 3) { toast('Describe the food in a few words first'); return; }
 
+  const gen = ++aiGen;
+  const ctx = { code: aiCtx.code, term: aiCtx.term };
   aiInFlight = true;
   $('#aiGo').disabled = true;
   $('#aiError').classList.add('hidden');
+  resetRawToggle('#aiRawBtn', '#aiRaw');
   $('#aiLoading').classList.remove('hidden');
   $('#aiLoadingMsg').textContent = 'Asking the model…';
 
   try {
     const est = await aiRequest(desc);
-    closeSheets();
+    if (gen !== aiGen) return;          // cancelled while the model was thinking
+    aiCtx = ctx;
     openEstimateConfirm(est, desc);
   } catch (err) {
+    if (gen !== aiGen) return;
     $('#aiLoading').classList.add('hidden');
     const box = $('#aiError');
     box.innerHTML = '<b>Could not estimate</b>' + escapeHtml(aiErrorText(err));
     box.classList.remove('hidden');
+    aiRawText = err.raw || (aiChat.lastRaw ? JSON.stringify(aiChat.lastRaw, null, 2) : '');
+    console.warn('[Macros] estimate failed:', err.code, err.message, '\nraw:', aiRawText);
+    if (aiRawText) {
+      $('#aiRaw').textContent = aiRawText;
+      $('#aiRawBtn').classList.remove('hidden');   // collapsed until asked for
+    }
     $('#aiGo').disabled = false;
   } finally {
-    aiInFlight = false;
+    if (gen === aiGen) aiInFlight = false;
   }
 }
 
@@ -1858,6 +1994,8 @@ function openEstimateConfirm(est, desc) {
   }
   openFoodEditor(null, name, {
     prefill,
+    /* No closeSheets() first: showSheet swaps the sheet over, and closing
+       here would clear the state openFoodEditor is about to read. */
     forceId: aiCtx.code ? 'off:' + aiCtx.code : null,
     ai: { confidence: est.confidence, model: est.model, desc },
   });
@@ -2114,9 +2252,10 @@ function renderAdvice() {
   box.classList.remove('hidden');
   box.classList.toggle('working', adviceLoading);
 
+  /* The raw JSON is a debugging aid, not the headline: the toggle is offered
+     whenever there is something to look at, but the box always starts shut. */
   const rawBtn = $('#adviceRawBtn'), rawBox = $('#adviceRaw');
-  rawBtn.classList.add('hidden');
-  rawBox.classList.add('hidden');
+  resetRawToggle('#adviceRawBtn', '#adviceRaw');
 
   if (adviceLoading) {
     $('#adviceText').textContent = 'Working out what to eat next…';
@@ -2143,8 +2282,7 @@ function renderAdvice() {
         + (cached.fromReasoning ? ' · recovered from the reasoning trace' : '');
   } else if (err) {
     $('#adviceText').textContent = err;
-    $('#adviceMeta').textContent = adviceRawText ? 'The raw reply is below.' : '';
-    if (adviceRawText) { rawBox.classList.remove('hidden'); rawBtn.textContent = 'Hide raw model response'; }
+    $('#adviceMeta').textContent = adviceRawText ? 'Tap below to see what the model actually sent.' : '';
   } else if (!(state.ai.key || '').trim()) {
     $('#adviceText').textContent = 'Add an OpenRouter key in Settings and suggestions will appear here after each check-in.';
     $('#adviceMeta').textContent = '';
@@ -2369,23 +2507,67 @@ function setExpanded(btn, panel, open) {
   panel.classList.toggle('hidden', !open);
 }
 
+/* Everything that is a sheet, found from the DOM rather than a hand-kept
+   list — the burn sheet was missing from the old list, so its Cancel, the
+   scrim and Escape all silently did nothing. A sheet added later is covered. */
+const allSheets = () => $$('.sheet');
+
+/* Opening one sheet closes the others so they can never stack, but it
+   deliberately leaves module state alone: openFoodEditor sets fsForceId
+   before it calls this, and wiping that would lose the barcode. */
 function showSheet(sel) {
+  const target = $(sel);
+  if (!target) return;
+  stopScanner();
+  allSheets().forEach(el => { if (el !== target) el.classList.add('hidden'); });
   $('#scrim').classList.remove('hidden');
-  $(sel).classList.remove('hidden');
+  target.classList.remove('hidden');
   document.body.style.overflow = 'hidden';
 }
+
+/* A real dismiss: hide every sheet and drop the half-finished state behind
+   it, so nothing stale is waiting the next time a sheet opens. */
 function closeSheets() {
   stopScanner();
   scanBusy = false;
+  aiGen++;                 // an estimate still in flight must not reopen a sheet
+  aiInFlight = false;
+
+  allSheets().forEach(el => el.classList.add('hidden'));
   $('#scrim').classList.add('hidden');
-  $('#portionSheet').classList.add('hidden');
-  $('#foodSheet').classList.add('hidden');
-  $('#scanSheet').classList.add('hidden');
-  $('#calSheet').classList.add('hidden');
+
   finalPending = null;
-  $('#nfSheet').classList.add('hidden');
-  $('#aiSheet').classList.add('hidden');
+  bs = { d: null, id: null };
+
+  /* Inputs and warnings that are not rebuilt on open. */
+  hideRenameRow();
+  $('#scanManualInput').value = '';
+  $('#bsWarn').classList.add('hidden');
+  $('#aiError').classList.add('hidden');
+  $('#aiLoading').classList.add('hidden');
+  $('#aiGo').disabled = false;
+  resetRawToggle('#aiRawBtn', '#aiRaw');
+
   document.body.style.overflow = '';
+}
+
+/* Both AI cards get the same collapsed-by-default debug view. Collapsed is
+   the point: the raw JSON is only wanted when something has gone wrong. */
+function resetRawToggle(btnSel, boxSel) {
+  const btn = $(btnSel), box = $(boxSel);
+  if (!btn || !box) return;
+  btn.classList.add('hidden');
+  box.classList.add('hidden');
+  btn.textContent = 'Show raw model response';
+}
+
+function bindRawToggle(btnSel, boxSel) {
+  const btn = $(btnSel), box = $(boxSel);
+  if (!btn || !box) return;
+  btn.onclick = () => {
+    const nowHidden = box.classList.toggle('hidden');
+    btn.textContent = nowHidden ? 'Show raw model response' : 'Hide raw model response';
+  };
 }
 
 let toastTimer = null;
@@ -2464,17 +2646,22 @@ function init() {
   $('#addCheckin').onclick = () => openCheckin(state.date, null);
   $('#bannerSave').onclick = commitBannerCheckin;
   $('#bannerCum').onkeydown = e => { if (e.key === 'Enter') commitBannerCheckin(); };
-  $('#bannerDismiss').onclick = () => { bannerDismissed = true; renderBanner(); };
+  $('#bannerDismiss').onclick = () => {
+    bannerDismissed = true;
+    $('#bannerCum').value = '';
+    $('#bannerErr').classList.add('hidden');
+    renderBanner();
+  };
   $('#finalSave').onclick = commitFinal;
   $('#finalCum').onkeydown = e => { if (e.key === 'Enter') commitFinal(); };
   $('#finalDismiss').onclick = () => {
     if (finalTarget) finalDismissed.add(finalTarget);
+    finalTarget = null;
+    $('#finalCum').value = '';
+    $('#finalErr').classList.add('hidden');
     renderFinalBanner();
   };
-  $('#adviceRawBtn').onclick = () => {
-    const box = $('#adviceRaw'), open = box.classList.toggle('hidden');
-    $('#adviceRawBtn').textContent = open ? 'Show raw model response' : 'Hide raw model response';
-  };
+  bindRawToggle('#adviceRawBtn', '#adviceRaw');
 
   /* feature toggles */
   $('#featBurn').onchange = e => {
@@ -2525,6 +2712,7 @@ function init() {
   $('#aiManualInstead').onclick = () => openFoodEditor(null, $('#aiDesc').value.trim() || aiCtx.term || '',
     { forceId: aiCtx.code ? 'off:' + aiCtx.code : null });
   $('#aiCancel').onclick = closeSheets;
+  bindRawToggle('#aiRawBtn', '#aiRaw');
 
   /* scanner */
   $('#scanBtn').onclick = openScanner;

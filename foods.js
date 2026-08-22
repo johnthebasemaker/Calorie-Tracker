@@ -114,7 +114,22 @@ const SEED_FOODS = [
   { n: 'Arabic Coffee (gahwa)',   g: 'Saudi / Gulf', kcal: 5,   p: 0.2,  c: 0.8,  f: 0,    a: 'qahwa kahwa', u: [{ l: '1 cup', g: 60 }] },
   { n: 'Kunafa',                  g: 'Saudi / Gulf', kcal: 350, p: 6.0,  c: 40,   f: 18.0, a: 'knafeh dessert', u: [{ l: '1 slice', g: 120 }] },
   { n: 'Basbousa',                g: 'Saudi / Gulf', kcal: 380, p: 5.0,  c: 50,   f: 17.0, a: 'semolina cake harissa dessert', u: [{ l: '1 piece', g: 70 }] },
-  { n: 'Vimto / Soft Drink',      g: 'Saudi / Gulf', kcal: 42,  p: 0,    c: 10.5, f: 0,    a: 'pepsi cola soda mirinda', u: [{ l: '1 can (330ml)', g: 330 }] },
+  { n: 'Vimto / Soft Drink',      g: 'Saudi / Gulf', kcal: 42,  p: 0,    c: 10.5, f: 0,    a: 'vimto cordial squash generic fizzy drink', u: [{ l: '1 glass', g: 250 }, { l: '1 can (330ml)', g: 330 }] },
+
+  /* ============ BRANDED DRINKS ============
+     Per 100 ml, off the label. Seeded because Open Food Facts' search server
+     is down often enough that a fizzy drink is otherwise unfindable — and a
+     can with a shift meal is the easiest 150 kcal in the day to miss. */
+  { n: 'Pepsi',                   g: 'Drinks', kcal: 44,  p: 0,   c: 11.0, f: 0, a: 'cola soft drink fizzy pepsi cola', u: [{ l: '1 can (330ml)', g: 330 }, { l: '1 bottle (500ml)', g: 500 }, { l: '1 glass', g: 250 }] },
+  { n: 'Coca-Cola',               g: 'Drinks', kcal: 42,  p: 0,   c: 10.6, f: 0, a: 'coke cola soft drink fizzy', u: [{ l: '1 can (330ml)', g: 330 }, { l: '1 bottle (500ml)', g: 500 }] },
+  { n: 'Mountain Dew',            g: 'Drinks', kcal: 49,  p: 0,   c: 12.6, f: 0, a: 'mtn dew citrus soft drink fizzy', u: [{ l: '1 can (330ml)', g: 330 }, { l: '1 bottle (500ml)', g: 500 }] },
+  { n: 'Mirinda Orange',          g: 'Drinks', kcal: 51,  p: 0,   c: 12.8, f: 0, a: 'miranda orange soda fizzy fanta', u: [{ l: '1 can (330ml)', g: 330 }, { l: '1 bottle (500ml)', g: 500 }] },
+  { n: '7UP',                     g: 'Drinks', kcal: 44,  p: 0,   c: 11.0, f: 0, a: 'seven up sprite lemon lime soda fizzy', u: [{ l: '1 can (330ml)', g: 330 }, { l: '1 bottle (500ml)', g: 500 }] },
+  { n: 'Diet / Zero Soft Drink',  g: 'Drinks', kcal: 0.3, p: 0,   c: 0,    f: 0, a: 'pepsi diet coke zero sugar free light cola', u: [{ l: '1 can (330ml)', g: 330 }] },
+  { n: 'Barbican Malt Drink',     g: 'Drinks', kcal: 51,  p: 0.4, c: 12.0, f: 0, a: 'malt non alcoholic beer moussy holsten', u: [{ l: '1 can (330ml)', g: 330 }] },
+  { n: 'Rani / Mango Juice Drink',g: 'Drinks', kcal: 55,  p: 0.2, c: 13.5, f: 0, a: 'rani float mango nectar juice drink maza', u: [{ l: '1 can (240ml)', g: 240 }, { l: '1 glass', g: 250 }] },
+  { n: 'Orange Juice',            g: 'Drinks', kcal: 45,  p: 0.7, c: 10.4, f: 0.2, a: 'fresh juice asir burtuqal', u: [{ l: '1 glass', g: 250 }] },
+  { n: 'Red Bull',                g: 'Drinks', kcal: 45,  p: 0.4, c: 11.0, f: 0, a: 'energy drink power horse code red', u: [{ l: '1 can (250ml)', g: 250 }] },
 
   /* ============ PROTEIN, DAIRY, NUTS & BASICS ============ */
   { n: 'Whey Protein Powder',     g: 'Protein & Basics', kcal: 400, p: 80.0, c: 8.0, f: 6.0, a: 'whey isolate protein shake supplement', u: [{ l: '1 scoop (30g)', g: 30 }, { l: '2 scoops', g: 60 }] },
@@ -255,6 +270,18 @@ const SEED_MICROS = {
   'kunafa':          { fb: 1.5,  sg: 30.0, na: 220, ch: 40, ca: 100 },
   'basbousa':        { fb: 1.5,  sg: 35.0, na: 180, ch: 25, ca: 60 },
   'vimto-soft-drink':{ fb: 0,    sg: 10.5, na: 10,  ch: 0 },
+
+  /* Branded drinks */
+  'pepsi':           { fb: 0,    sg: 11.0, na: 3,   ch: 0 },
+  'coca-cola':       { fb: 0,    sg: 10.6, na: 4,   ch: 0 },
+  'mountain-dew':    { fb: 0,    sg: 12.6, na: 9,   ch: 0 },
+  'mirinda-orange':  { fb: 0,    sg: 12.8, na: 7,   ch: 0 },
+  '7up':             { fb: 0,    sg: 11.0, na: 12,  ch: 0 },
+  'diet-zero-soft-drink':{ fb: 0, sg: 0,   na: 10,  ch: 0 },
+  'barbican-malt-drink':{ fb: 0,  sg: 11.5, na: 8,  ch: 0 },
+  'rani-mango-juice-drink':{ fb: 0.2, sg: 13.0, na: 5, ch: 0 },
+  'orange-juice':    { fb: 0.2,  sg: 8.4,  na: 1,   ch: 0, ca: 11 },
+  'red-bull':        { fb: 0,    sg: 11.0, na: 40,  ch: 0 },
 
   /* Protein, dairy, nuts & basics */
   'whey-protein-powder':{ fb: 1.0, sg: 5.0, na: 300, ch: 30, ca: 500 },
