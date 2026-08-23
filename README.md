@@ -282,14 +282,40 @@ iron act over weeks, through stores and bone turnover, so those three show a
 **7-day average** and one heavy or light day is not a miss. Days with nothing
 logged are left out of the average rather than counted as zero.
 
-**One honest caveat on sugar.** 36 g is the *added* sugar guideline, but the only
-data available anywhere — Open Food Facts and the seed table alike — is *total*
-sugars. So the lactose in milk and the sugar in dates and fruit all count against
-it, and a genuinely good day can read OVER: idli, chickpeas, 500 ml of milk and a
-handful of almonds lands at 38 g. That is the deliberate trade for a target that
-means something nutritionally. Raise it to about 90 g in Settings if you would
-rather the flag tracked total sugars, and the note under the grid says which you
-are looking at.
+**Sugar is three numbers, not one.** A single total-sugars figure punished a glass
+of milk exactly as hard as a fizzy drink, which is nonsense — so it is split:
+
+- **Added sugar** is the one worth limiting: table sugar, jaggery, honey, syrup,
+  concentrated juice. Target 36 g, the WHO free-sugars line. This is the only
+  sugar row that ever turns red.
+- **Natural sugar** is lactose and fruit sugar. There is no health guideline
+  telling anyone to eat less fruit or drink less milk, so its 100 g ceiling is
+  informational and stays a quiet grey even when you go past it.
+- **Total sugar** is the raw figure the other two come from, and carries no
+  target at all.
+
+Natural sugar is worked out as total minus added, and **only for foods where both
+are on record**. One food missing its added-sugar figure makes the split partial
+for the day, and the app says so — naming the food — rather than printing a
+number that quietly excludes it.
+
+120 of the 123 seeded foods carry a real added-sugar value: 0 for plain rice, dal,
+milk, curd, meat and dates, and the honest figure for karak chai, kunafa, basbousa
+and the fizzy drinks. Three are deliberately left unknown, because the true answer
+varies too much to fake: pickle (sweet mango against plain lime), whey powder (all
+in the flavouring) and peanut butter (natural has none, commercial has plenty).
+
+Open Food Facts publishes `added-sugars_100g`, but it is crowd-entered and
+unvalidated — there are live products listing 10 g added against 9.4 g total,
+which cannot be true. Anything above the total is dropped as a data error rather
+than imported. The AI estimator is asked for both figures separately and is told
+that null beats a guess; a reply where added exceeds total has the added figure
+discarded before you ever see it.
+
+**Entries logged before the split** keep their one sugar number as total sugar,
+with added sugar reading "—" rather than a fabricated 0. Re-saving such an entry
+in the portion sheet adopts the food's current figures, same as the earlier
+micronutrient migration.
 
 **Portions.** Every food has grams plus household portions — *1 idli · 45 g*,
 *1 plate · 400 g*, *3 dates · 24 g*. Everything recalculates live as you change
@@ -357,6 +383,37 @@ its own reset, and it stops being custom the moment you take the calculated valu
 
 ---
 
+## Workout
+
+Its own tab. Bodyweight only, no equipment, built around 15-20 minutes between
+shifts.
+
+Pick a focus — upper body, lower body, full body, aerobic, muscle gain or weight
+loss — and the session is built from push, legs, pull, conditioning and a core
+finisher that runs whatever the focus. If My Profile has a goal, the focus starts
+on the matching one; tapping any chip overrides that for good.
+
+**The timing is circuit-based, and computed rather than typed.** One round of
+every exercise, then repeat, three rounds in all — moving straight on between
+exercises and taking about a minute between rounds. That is what makes three sets
+of everything fit: charging a full rest after every individual set instead put
+sessions at 23-32 minutes, well past what this is for. If a session still runs
+long, the longest block is trimmed until it fits, so changing a rep count later
+cannot quietly break the promise on the card. All six focuses currently land
+between 18 and 20 minutes.
+
+**Tick exercises as you go.** The session counts as done when every one is ticked,
+but a half-finished session after a long shift still shows what you managed rather
+than nothing. Untick everything and the day is dropped entirely. A streak counts
+consecutive complete days, and an unfinished today does not break it before the
+day is over.
+
+**Reminders** work like the burn check-ins: no server, so nothing is pushed. Set
+any number of workout times in Settings; when one has passed and nothing is ticked
+off, the Workout tab shows a banner. Ticking anything silences it for the day.
+
+---
+
 ## Backup — please actually do this
 
 iOS clears website data for sites you haven't opened in a while. Adding the app
@@ -373,7 +430,7 @@ you'll paste that in again on a new device.
 
 | File | What it is |
 |---|---|
-| `index.html` | All markup — four tabs and two bottom sheets |
+| `index.html` | All markup — six tabs and the bottom sheets |
 | `styles.css` | Mobile-first styling, automatic light/dark |
 | `foods.js` | The seeded food database + its micronutrient table |
 | `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning, AI, the nutrition engine |

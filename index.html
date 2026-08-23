@@ -201,6 +201,29 @@
     </div>
   </section>
 
+  <!-- ========================== WORKOUT ========================== -->
+  <section class="view hidden" id="view-workout">
+    <div class="wkbanner hidden" id="woBanner">
+      <button class="bx" id="woDismiss" aria-label="Dismiss">&times;</button>
+      <b id="woBannerTitle"></b>
+      <p id="woBannerHint"></p>
+    </div>
+
+    <h2 class="sect">Focus <small>tap to change</small></h2>
+    <div class="chips" id="woFocus"></div>
+    <p class="hint" id="woFocusNote"></p>
+
+    <div class="card wotop">
+      <div><b id="woDoneCount">0/0</b><span>done today</span></div>
+      <div><b id="woMins">—</b><span>minutes</span></div>
+      <div><b id="woStreak">0</b><span>day streak</span></div>
+    </div>
+
+    <div id="woBlocks"></div>
+
+    <p class="micronote" id="woNote"></p>
+  </section>
+
   <!-- ============================ WEEK ============================ -->
   <section class="view hidden" id="view-week">
     <div class="burntop weektop">
@@ -309,18 +332,31 @@
       <div class="hidden" id="nutTargets">
         <p class="hint" id="nutTargetsIntro"></p>
         <label class="field"><span>Fibre (g, min)</span><input type="number" inputmode="numeric" id="tFb"></label>
-        <label class="field"><span>Sugar (g, max)</span><input type="number" inputmode="numeric" id="tSg"></label>
+        <label class="field"><span>Total sugar (g)</span><input type="number" inputmode="numeric" id="tSg" placeholder="no target"></label>
+        <label class="field"><span>Added sugar (g, max)</span><input type="number" inputmode="numeric" id="tAs"></label>
+        <label class="field"><span>Natural sugar (g, ceiling)</span><input type="number" inputmode="numeric" id="tNs"></label>
         <label class="field"><span>Sodium (mg, max)</span><input type="number" inputmode="numeric" id="tNa"></label>
         <label class="field"><span>Cholesterol (mg, max)</span><input type="number" inputmode="numeric" id="tCh"></label>
         <label class="field"><span>Calcium (mg, min)</span><input type="number" inputmode="numeric" id="tCa"></label>
         <label class="field"><span>Iron (mg, min)</span><input type="number" inputmode="numeric" id="tFe"></label>
-        <p class="hint">The sugar figure is the added-sugar guideline, but only total sugars are on
-          record — so milk, dates and fruit count against it. Raise it to about 90 g if you would
-          rather the flag tracked total sugars.</p>
+        <p class="hint"><b>Added sugar</b> is the one worth limiting — table sugar, jaggery, honey,
+          syrup. <b>Natural sugar</b> is the lactose in milk and the fructose in fruit; there is no
+          health guideline restricting it, so its ceiling is for reference only and never turns red.
+          <b>Total sugar</b> is the raw figure the other two are worked out from and has no target.
+          Clear any box to switch that flag off.</p>
       </div>
 
       <button class="wide" id="saveTargets">Save targets</button>
       <button class="wide ghost" id="resetTargets">Reset all targets to the defaults</button>
+    </div>
+
+    <h2 class="sect">Workout reminders</h2>
+    <div class="card form">
+      <p class="hint">There is no server, so nothing can be pushed to your phone. These times are
+        checked when you open the app: if one has passed and you have not ticked anything off,
+        the Workout tab shows a reminder. Add as many as suit your shifts.</p>
+      <div id="woTimeList"></div>
+      <button class="wide ghost" id="woAddTime">+ Add a workout time</button>
     </div>
 
     <div id="aiSettingsWrap">
@@ -361,6 +397,7 @@
 <nav class="tabbar">
   <button class="tab active" data-view="today"><span class="ic">&#9679;</span>Today</button>
   <button class="tab" data-view="add"><span class="ic">&#43;</span>Add</button>
+  <button class="tab" data-view="workout"><span class="ic">&#9829;</span>Workout</button>
   <button class="tab" data-view="week"><span class="ic">&#9636;</span>Week</button>
   <button class="tab" data-view="foods"><span class="ic">&#9776;</span>Foods</button>
   <button class="tab" data-view="settings"><span class="ic">&#9881;</span>Settings</button>
@@ -451,7 +488,8 @@
   <div class="form hidden" id="fsMicros">
     <p class="hint">All optional — leave blank and the app shows “—” instead of pretending it's zero.</p>
     <label class="field"><span>Fibre g / 100 g</span><input type="number" inputmode="decimal" id="fFb"></label>
-    <label class="field"><span>Sugar g / 100 g</span><input type="number" inputmode="decimal" id="fSg"></label>
+    <label class="field"><span>Total sugar g / 100 g</span><input type="number" inputmode="decimal" id="fSg"></label>
+    <label class="field"><span>Added sugar g / 100 g</span><input type="number" inputmode="decimal" id="fAs" placeholder="blank = unknown"></label>
     <label class="field"><span>Sodium mg / 100 g</span><input type="number" inputmode="decimal" id="fNa"></label>
     <label class="field"><span>Cholesterol mg / 100 g</span><input type="number" inputmode="decimal" id="fCh"></label>
     <label class="field"><span>Calcium mg / 100 g</span><input type="number" inputmode="decimal" id="fCa"></label>

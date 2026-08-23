@@ -1,6 +1,6 @@
 /* Service worker: cache the app shell so the tracker opens offline.
    Bump CACHE when you change any shell file. */
-const CACHE = 'macros-v8';
+const CACHE = 'macros-v9';
 
 const SHELL = [
   './',

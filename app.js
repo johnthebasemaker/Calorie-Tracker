@@ -9,6 +9,7 @@ const KEY = {
   prof:  'ct.profile.v1',   // body stats, goal and focus areas — all optional
   cust:  'ct.custom.v1',    // target keys edited by hand; recalculation asks first
   wx:    'ct.weather.v1',   // last good forecast, so a flight or a dead link still works
+  work:  'ct.workout.v1',   // focus, custom times, and which exercises got done when
   foods: 'ct.foods.v1',
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
@@ -69,7 +70,9 @@ const AI_RETIRED_DEFAULTS = ['openai/gpt-oss-20b:free'];
    though the app can only measure total sugars — see MICROS below. */
 const DEFAULT_TARGETS = {
   kcal: 2900, p: 130, c: 390, f: 90, water: 3500,
-  fb: 30, sg: 36, na: 2300, ch: 300, ca: 1000, fe: 8,
+  /* sg has no target now that the split exists — total sugars is the raw
+     figure the other two are worked out from, not something to hit. */
+  fb: 30, sg: 0, as: 36, ns: 100, na: 2300, ch: 300, ca: 1000, fe: 8,
 };
 
 /* Extra nutrients, in display order. Stored per 100 g on the food, and
@@ -84,14 +87,29 @@ const DEFAULT_TARGETS = {
    cholesterol through chronic intake, so those three are judged on a 7-day
    rolling average and a single heavy day is not a failure. */
 const MICROS = [
-  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1, dir: 'min', span: 'day' },
-  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1, dir: 'max', span: 'day',
-    note: 'added-sugar target, measured against total sugars' },
-  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0, dir: 'max', span: 'day' },
-  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0, dir: 'max', span: 'week' },
-  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0, dir: 'min', span: 'week' },
-  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1, dir: 'min', span: 'week' },
+  { k: 'fb', label: 'Fibre',        unit: 'g',  dp: 1, dir: 'min', span: 'day' },
+
+  /* Three sugar rows, because one number was doing two jobs badly.
+     `sg` is total sugars — the only figure every source reports, so it is
+     what old entries hold and what a food falls back to.
+     `as` is added sugar, the one that is actually worth limiting.
+     `ns` is natural sugar, DERIVED as total minus added and only where both
+     are known for a food; a partial day shows what it can and says so. */
+  { k: 'sg', label: 'Total sugar',  unit: 'g',  dp: 1, dir: null,  span: 'day' },
+  { k: 'as', label: 'Added sugar',  unit: 'g',  dp: 1, dir: 'max', span: 'day' },
+  { k: 'ns', label: 'Natural sugar', unit: 'g', dp: 1, dir: 'max', span: 'day',
+    tone: 'info', derived: true,
+    note: 'lactose and fruit sugar — a ceiling for reference, not a limit' },
+
+  { k: 'na', label: 'Sodium',       unit: 'mg', dp: 0, dir: 'max', span: 'day' },
+  { k: 'ch', label: 'Cholesterol',  unit: 'mg', dp: 0, dir: 'max', span: 'week' },
+  { k: 'ca', label: 'Calcium',      unit: 'mg', dp: 0, dir: 'min', span: 'week' },
+  { k: 'fe', label: 'Iron',         unit: 'mg', dp: 1, dir: 'min', span: 'week' },
 ];
+
+/* Stored on foods and snapshotted onto entries. `ns` is absent because it is
+   worked out, never recorded. */
+const MICRO_STORED = MICROS.filter(m => !m.derived);
 
 /* Mean intake per day across the 7 days ending on `d`, counting only days
    with food logged. Counting empty days as zero would report a holiday as
@@ -113,7 +131,15 @@ function microWeekAvg(k, d) {
    data" and "under the minimum" are different things. */
 function microState(m, value) {
   const target = state.targets[m.k];
-  if (!(target > 0)) return { cls: '', label: '' };
+  if (!m.dir || !(target > 0)) return { cls: '', label: '' };
+
+  /* An informational ceiling reports where you are without ever alarming.
+     There is no health guideline saying to eat less fruit or drink less
+     milk, so natural sugar never gets the treatment a real limit gets. */
+  if (m.tone === 'info') {
+    return value > target ? { cls: 'info', label: 'high' } : { cls: '', label: '' };
+  }
+
   if (m.dir === 'max') {
     if (value > target) return { cls: 'over',  label: 'over' };
     if (value >= target * 0.8) return { cls: 'near', label: 'close' };
@@ -169,16 +195,16 @@ const FOCUS_AREAS = [
   { k: 'skin',    label: 'Skin care',
     protein: 1.05, fb: 34, note: 'protein for collagen turnover, and fibre for gut-skin balance' },
   { k: 'healthy', label: 'General healthy body',
-    fb: 34, sg: 30, note: 'more fibre, less added sugar' },
+    fb: 34, as: 30, note: 'more fibre, less added sugar' },
   { k: 'bulk',    label: 'Full body weight gain',
     protein: 1.1, kcal: 1.0, note: 'protein raised alongside the surplus' },
   { k: 'muscle',  label: 'Specific muscle gain',
     protein: 1.25, note: 'protein toward the top of the evidence-based range' },
   { k: 'belly',   label: 'Belly fat loss',
-    protein: 1.15, fb: 38, sg: 25, na: 2000,
+    protein: 1.15, fb: 38, as: 25, na: 2000,
     note: 'protein and fibre for satiety, tighter sugar and sodium' },
   { k: 'fatloss', label: 'Full body fat loss',
-    protein: 1.2, fb: 38, sg: 25, note: 'protein high to protect muscle in a deficit' },
+    protein: 1.2, fb: 38, as: 25, note: 'protein high to protect muscle in a deficit' },
 ];
 
 const DEFAULT_PROFILE = {
@@ -263,7 +289,7 @@ function focusEffects(p) {
     if (!f) return;
     eff.protein *= f.protein || 1;
     eff.kcal *= f.kcal || 1;
-    ['fb', 'sg', 'na', 'ch', 'ca', 'fe'].forEach(m => {
+    ['fb', 'as', 'ns', 'na', 'ch', 'ca', 'fe'].forEach(m => {
       if (f[m] == null) return;
       const raise = m === 'fb' || m === 'ca' || m === 'fe';   // minimums go up
       eff[m] = eff[m] == null ? f[m] : (raise ? Math.max(eff[m], f[m]) : Math.min(eff[m], f[m]));
@@ -301,7 +327,15 @@ function computeTargets(p, opts = {}) {
 
   const micro = {
     fb: Math.round(Math.min(40, Math.max(25, (kcal / 1000) * 14))),
-    sg: Math.round(Math.min(36, (kcal * 0.10) / 4)),
+    /* Total sugar carries no target: it is the raw figure the split is
+       worked out from, not something to aim at. */
+    sg: 0,
+    /* Added sugar is the WHO free-sugars bar — 5 % of energy, capped at the
+       AHA figure for men. Now that lactose and fruit sugar are counted
+       separately this applies cleanly instead of flagging a glass of milk. */
+    as: Math.round(Math.min(36, (kcal * 0.05) / 4)),
+    /* Natural sugar scales loosely with intake. Informational only. */
+    ns: Math.round(Math.min(130, Math.max(80, (kcal / 2900) * 100))),
     na: 2300,
     ch: 300,
     ca: 1000,
@@ -312,7 +346,7 @@ function computeTargets(p, opts = {}) {
   const hot = (state.weather && state.weather.maxC >= 32) || false;
   if ((active && active > 600) || hot) micro.na = 2600;
 
-  ['fb', 'sg', 'na', 'ch', 'ca', 'fe'].forEach(k => { if (eff[k] != null) micro[k] = eff[k]; });
+  ['fb', 'as', 'ns', 'na', 'ch', 'ca', 'fe'].forEach(k => { if (eff[k] != null) micro[k] = eff[k]; });
 
   return Object.assign({
     kcal, p: protein, c: carbs, f: fat,
@@ -417,6 +451,199 @@ function weatherNote() {
     + '.';
 }
 
+/* =====================================================================
+   WORKOUT
+
+   Bodyweight only, no equipment, built for 15-20 minutes between shifts.
+   Circuit style: one round of every exercise, then repeat, with short rests
+   — that is what keeps a session inside the time budget while still giving
+   three sets of each movement.
+
+   Durations are worked out rather than typed in, so editing a set count
+   cannot leave a stale "18 min" behind: sets x reps x ~3 s per rep, plus
+   the rest between sets, plus a minute to warm up.
+   ===================================================================== */
+
+const WORKOUT_FOCUS = [
+  { k: 'upper',  label: 'Upper body',  blocks: ['push', 'pull'] },
+  { k: 'lower',  label: 'Lower body',  blocks: ['legs'] },
+  { k: 'full',   label: 'Full body',   blocks: ['push', 'legs', 'pull'] },
+  { k: 'cardio', label: 'Aerobic',     blocks: ['cond'] },
+  { k: 'muscle', label: 'Muscle gain', blocks: ['push', 'legs', 'pull'] },
+  { k: 'loss',   label: 'Weight loss', blocks: ['cond', 'legs'] },
+];
+
+/* `hold` marks a timed exercise, where "reps" are seconds. */
+const WORKOUT_BLOCKS = {
+  push: { label: 'Push — chest, shoulders, triceps', ex: [
+    { id: 'pushup',   name: 'Push-ups',                    sets: 3, reps: 12 },
+    { id: 'pike',     name: 'Pike push-ups',               sets: 3, reps: 8 },
+    { id: 'diamond',  name: 'Diamond push-ups',            sets: 3, reps: 8 },
+    { id: 'decline',  name: 'Decline push-ups (feet up)',  sets: 3, reps: 10 },
+  ]},
+  legs: { label: 'Legs', ex: [
+    { id: 'squat',    name: 'Bodyweight squats',           sets: 3, reps: 20 },
+    { id: 'lunge',    name: 'Walking lunges',              sets: 3, reps: 12, note: 'each leg' },
+    { id: 'bulgar',   name: 'Bulgarian split squat',       sets: 3, reps: 10, note: 'each leg' },
+    { id: 'calf',     name: 'Calf raises',                 sets: 3, reps: 20 },
+  ]},
+  pull: { label: 'Pull — back, biceps', ex: [
+    { id: 'superman', name: 'Superman hold',               sets: 3, reps: 30, hold: true },
+    { id: 'snowangel',name: 'Reverse snow angels',         sets: 3, reps: 15 },
+    { id: 'bagcurl',  name: 'Backpack curls',              sets: 3, reps: 12, note: 'books or bottles for weight' },
+    { id: 'ytw',      name: 'Prone Y-T-W raises',          sets: 3, reps: 8,  note: 'each letter' },
+  ]},
+  cond: { label: 'Conditioning', ex: [
+    { id: 'burpee',   name: 'Burpees',                     sets: 3, reps: 10 },
+    { id: 'jumpsquat',name: 'Jump squats',                 sets: 3, reps: 15 },
+    { id: 'mtclimb',  name: 'Mountain climbers',           sets: 3, reps: 30, note: 'total, alternating' },
+    { id: 'plankpush',name: 'Plank-to-push-up',            sets: 3, reps: 10 },
+  ]},
+  core: { label: 'Core finisher', ex: [
+    { id: 'plank',    name: 'Plank hold',                  sets: 3, reps: 45, hold: true },
+    { id: 'legraise', name: 'Leg raises',                  sets: 3, reps: 12 },
+    { id: 'bicycle',  name: 'Bicycle crunches',            sets: 3, reps: 20 },
+    { id: 'twist',    name: 'Russian twists',              sets: 3, reps: 20 },
+  ]},
+};
+
+const DEFAULT_WORKOUT = {
+  focus: null,                    // null means "follow the profile goal"
+  times: [{ id: 'w1', min: 6 * 60 }],
+  log: {},                        // 'YYYY-MM-DD' -> { focus, done: [exerciseId], ts }
+};
+
+/* Phase 3's goal picks the opening focus, but only as a starting point —
+   an explicit choice always wins and is remembered. */
+function suggestedFocus() {
+  const p = state.profile || {};
+  if ((p.focus || []).includes('muscle')) return 'muscle';
+  if ((p.focus || []).some(f => f === 'belly' || f === 'fatloss')) return 'loss';
+  if (p.goal === 'gain') return 'muscle';
+  if (p.goal === 'lose') return 'loss';
+  return 'full';
+}
+const activeFocus = () => state.workout.focus || suggestedFocus();
+
+/* A session is the focus blocks plus the core finisher, which runs whatever
+   the focus. How many exercises come from each block is set by how many
+   blocks there are, so the total stays inside the time budget: a single-block
+   day can afford the full four, a three-block day cannot. */
+const BLOCK_TAKE = { 1: 4, 2: 3, 3: 2, 4: 2 };
+const CORE_TAKE  = { 1: 2, 2: 1, 3: 1, 4: 1 };
+
+const SESSION_MAX_MINUTES = 20;
+const SESSION_MIN_EXERCISES = 5;
+
+function sessionFor(focusKey) {
+  const f = WORKOUT_FOCUS.find(x => x.k === focusKey) || WORKOUT_FOCUS[2];
+  const n = f.blocks.length;
+  const blocks = f.blocks.map(bk => {
+    const b = WORKOUT_BLOCKS[bk];
+    return { key: bk, label: b.label, ex: b.ex.slice(0, BLOCK_TAKE[n] || 2) };
+  });
+  blocks.push({ key: 'core', label: WORKOUT_BLOCKS.core.label,
+                ex: WORKOUT_BLOCKS.core.ex.slice(0, CORE_TAKE[n] || 1) });
+
+  /* The counts above are a starting point, not a guarantee: a block of
+     high-rep work (mountain climbers, 20-rep squats) still ran to 23 minutes.
+     Trim the longest block until it fits, so changing a rep count later
+     cannot quietly push a session past the time it promises. */
+  let guard = 20;
+  while (sessionMinutes(blocks) > SESSION_MAX_MINUTES
+         && blocks.reduce((a, b) => a + b.ex.length, 0) > SESSION_MIN_EXERCISES
+         && guard-- > 0) {
+    const biggest = blocks
+      .filter(b => b.ex.length > 1)
+      .sort((a, b) => exerciseSeconds(b.ex) - exerciseSeconds(a.ex))[0];
+    if (!biggest) break;
+    biggest.ex.pop();
+  }
+
+  return { focus: f, blocks, minutes: sessionMinutes(blocks) };
+}
+
+const exerciseSeconds = ex => ex.reduce((sec, e) =>
+  sec + (e.hold ? e.reps : e.reps * SECONDS_PER_REP) + TRANSITION_SECONDS, 0);
+
+/* Circuit timing, which is what makes 3 sets of everything fit in the time
+   available. One round of every exercise, then repeat — so the rest is a
+   short transition between exercises plus a proper breather between rounds,
+   not a full rest after every single set. Charging 30 s per set instead put
+   every session at 23-32 minutes, well past the 15-20 this is built for. */
+const ROUNDS = 3;
+const TRANSITION_SECONDS = 15;   // moving between exercises
+const ROUND_REST_SECONDS = 60;   // breather between rounds
+const SECONDS_PER_REP = 2.5;
+const WARMUP_SECONDS = 60;
+
+function sessionMinutes(blocks) {
+  const perRound = exerciseSeconds(blocks.reduce((a, b) => a.concat(b.ex), []));
+  const total = WARMUP_SECONDS + perRound * ROUNDS + ROUND_REST_SECONDS * (ROUNDS - 1);
+  return Math.round(total / 60);
+}
+
+const allExerciseIds = sess => sess.blocks.reduce((a, b) => a.concat(b.ex.map(e => e.id)), []);
+
+function workoutFor(d) {
+  return state.workout.log[d] || null;
+}
+
+function toggleExercise(d, id) {
+  const sess = sessionFor(activeFocus());
+  const rec = state.workout.log[d] || { focus: activeFocus(), done: [], ts: Date.now() };
+  /* The focus is stamped on first tick and then left alone — changing focus
+     mid-session should not silently rewrite what a past day says you did. */
+  const i = rec.done.indexOf(id);
+  if (i >= 0) rec.done.splice(i, 1); else rec.done.push(id);
+  rec.ts = Date.now();
+
+  if (!rec.done.length) delete state.workout.log[d];
+  else state.workout.log[d] = rec;
+  saveWorkout();
+  return rec.done.length;
+}
+
+/* Done means every exercise in that day's session was ticked. */
+function workoutComplete(d) {
+  const rec = workoutFor(d);
+  if (!rec) return false;
+  const ids = allExerciseIds(sessionFor(rec.focus || activeFocus()));
+  return ids.length > 0 && ids.every(id => rec.done.includes(id));
+}
+
+/* Consecutive days ending today (or yesterday, so an unfinished today does
+   not read as a broken streak before the day is over). */
+function workoutStreak() {
+  let n = 0;
+  const start = workoutComplete(todayStr()) ? 0 : 1;
+  for (let i = start; i < 400; i++) {
+    if (!workoutComplete(shiftDate(todayStr(), -i))) break;
+    n++;
+  }
+  return n;
+}
+
+function workoutWeekCount() {
+  let n = 0;
+  for (let i = 0; i < 7; i++) if (workoutComplete(shiftDate(todayStr(), -i))) n++;
+  return n;
+}
+
+/* Same pattern as the burn check-in nudge: no server, so the reminder is
+   whatever the clock says next time the app is opened. */
+let workoutBannerDismissed = false;
+
+function workoutDue() {
+  if (workoutBannerDismissed) return null;
+  const times = (state.workout.times || []).filter(t => typeof t.min === 'number');
+  if (!times.length) return null;
+  if (workoutFor(todayStr())) return null;          // something already ticked today
+  const now = nowMinutes();
+  const passed = times.filter(t => t.min <= now).sort((a, b) => b.min - a.min);
+  return passed.length ? passed[0] : null;
+}
+
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -434,6 +661,7 @@ const state = {
   weather: null,
   burn:    [],          // { id, d, cp, cum, ts }
   advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
+  workout: { focus: null, times: [], log: {} },
   date:    todayStr(),
   weekStart: mondayOf(todayStr()),
 };
@@ -457,7 +685,25 @@ function load() {
   migrateRetiredModel();
   state.burn    = readJSON(KEY.burn, []);
   state.advice  = readJSON(KEY.advice, {});
-  state.profile = Object.assign({}, DEFAULT_PROFILE, readJSON(KEY.prof, {}));
+  /* Deep copy, not Object.assign. A shallow one leaves state.workout.log
+     pointing AT the object inside DEFAULT_WORKOUT, so every tick writes into
+     the default — and a data wipe, which reloads from the same default, hands
+     the old history straight back. Same trap for the times array. */
+  const savedWork = readJSON(KEY.work, {}) || {};
+  state.workout = {
+    focus: savedWork.focus || null,
+    times: Array.isArray(savedWork.times) && savedWork.times.length
+      ? savedWork.times.map(t => ({ id: t.id || uid(), min: t.min }))
+      : DEFAULT_WORKOUT.times.map(t => ({ ...t })),
+    log: (savedWork.log && typeof savedWork.log === 'object')
+      ? JSON.parse(JSON.stringify(savedWork.log)) : {},
+  };
+  /* focus is an array on DEFAULT_PROFILE, so a shallow merge would share it
+     between the default and the live profile — same trap as the workout log. */
+  const savedProf = readJSON(KEY.prof, {}) || {};
+  state.profile = Object.assign({}, DEFAULT_PROFILE, savedProf, {
+    focus: Array.isArray(savedProf.focus) ? savedProf.focus.slice() : [],
+  });
   state.customTargets = readJSON(KEY.cust, []);
   state.weather = readJSON(KEY.wx, null);
 
@@ -486,6 +732,7 @@ const saveProfile = () => writeJSON(KEY.prof, state.profile);
 const saveCustomTargets = () => writeJSON(KEY.cust, state.customTargets);
 const saveWeather = () => writeJSON(KEY.wx, state.weather);
 
+const saveWorkout = () => writeJSON(KEY.work, state.workout);
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
@@ -632,7 +879,7 @@ function totalsFor(d) {
 function microTotalsFor(d) {
   const rows = entriesFor(d);
   const out = {};
-  MICROS.forEach(m => {
+  MICRO_STORED.forEach(m => {
     let sum = 0, have = 0;
     rows.forEach(e => {
       const v = e.m && e.m[m.k];
@@ -640,6 +887,19 @@ function microTotalsFor(d) {
     });
     out[m.k] = { sum, have, total: rows.length };
   });
+
+  /* Natural sugar only counts a food where BOTH its total and its added
+     sugar are on record. Subtracting an unknown added figure would invent a
+     number, and the whole point of the split is not to do that. */
+  let nsSum = 0, nsHave = 0;
+  rows.forEach(e => {
+    const tot = e.m && e.m.sg, add = e.m && e.m.as;
+    if (typeof tot !== 'number' || typeof add !== 'number') return;
+    nsSum += Math.max(0, tot - add) * e.g / 100;
+    nsHave++;
+  });
+  out.ns = { sum: nsSum, have: nsHave, total: rows.length };
+
   return out;
 }
 
@@ -925,8 +1185,15 @@ function renderTotalsMicros() {
 
     const target = state.targets[m.k];
     /* No state without data. An unreported sodium is not a low sodium, and
-       colouring it green would be a lie the rest of this card avoids. */
-    const st = known ? microState(m, value) : { cls: '', label: '' };
+       colouring it green would be a lie the rest of this card avoids.
+
+       With data missing from some foods the rule tightens: a limit can still
+       be called OVER, because what is already counted exceeds it and the
+       unknowns can only add more — but it can never be called fine, since a
+       food that has not reported could be the one that blows it. */
+    let st = known ? microState(m, value) : { cls: '', label: '' };
+    if (known && isPartial && m.dir === 'max' && st.cls !== 'over') st = { cls: '', label: '' };
+    if (known && isPartial && m.dir === 'min' && st.cls !== 'ok') st = { cls: '', label: '' };
     if (known && (st.cls === 'over' || st.cls === 'under')) flagged.push(m);
 
     const cell = document.createElement('div');
@@ -954,9 +1221,27 @@ function renderTotalsMicros() {
     }
     if (partial) {
       bits.push('A count like (3/6) means only 3 of the 6 foods logged reported that nutrient, and '
-        + '"—" means none did — so a real total is higher than shown, and an "under" may not be real.');
+        + '"—" means none did. Where a nutrient is incomplete it is only flagged when what is '
+        + 'already counted breaks the limit on its own — otherwise no verdict is given, because '
+        + 'the missing foods could go either way.');
     } else {
-      bits.push('Every food logged today reported all six.');
+      bits.push('Every food logged today reported every nutrient.');
+    }
+
+    /* Natural sugar is total minus added, so it needs BOTH on every food.
+       Saying which foods are holding it up beats a bare dash. */
+    const ns = totals.ns;
+    if (ns.total > 0 && ns.have < ns.total) {
+      const missing = entriesFor(state.date)
+        .filter(e => !(e.m && typeof e.m.sg === 'number' && typeof e.m.as === 'number'))
+        .map(e => e.n);
+      bits.push(ns.have === 0
+        ? 'The natural/added split needs both figures on a food, and nothing logged today has both — '
+          + `so only total sugar is shown. Fill in added sugar for ${listWords(missing.slice(0, 3))}`
+          + `${missing.length > 3 ? ' and others' : ''} in the Foods tab.`
+        : `The natural/added split covers ${ns.have} of ${ns.total} foods today — `
+          + `${listWords(missing.slice(0, 3))}${missing.length > 3 ? ' and others' : ''} `
+          + 'have no added-sugar figure, so the split is partial and total sugar is the complete number.');
     }
     /* The sugar bar is an added-sugar guideline but the only data available
        is total sugars, so milk, dates and fruit all count against it. Saying
@@ -964,12 +1249,12 @@ function renderTotalsMicros() {
     const weeklyNames = MICROS.filter(m => m.span === 'week').map(m => m.label.toLowerCase());
     bits.push(`${listWords(weeklyNames.map(cap1))} are averaged over 7 days, not judged on one day — `
       + 'they act on the body over weeks, so a single heavy or light day is not a miss.');
+    bits.push('Natural sugar has no health guideline behind it — the ceiling is there for reference, '
+      + 'so it never turns red the way a real limit does.');
     bits.push(hasProfile()
-      ? 'Targets are calculated from your profile. The sugar limit is the added-sugar guideline, '
-        + 'but only total sugars are on record — so milk, dates and fruit count towards it.'
+      ? 'Targets are calculated from your profile.'
       : 'Targets are general adult reference values — set up My Profile in Settings for figures based on '
-        + 'your own body and goal. The sugar limit is the added-sugar guideline, but only total sugars '
-        + 'are on record, so milk, dates and fruit count towards it.');
+        + 'your own body and goal.');
   }
   note.textContent = bits.join(' ');
 }
@@ -1310,7 +1595,7 @@ let lastAddedId = null;
 
 function addEntry(food, grams) {
   const micro = {};
-  MICROS.forEach(m => { if (typeof food[m.k] === 'number') micro[m.k] = food[m.k]; });
+  MICRO_STORED.forEach(m => { if (typeof food[m.k] === 'number') micro[m.k] = food[m.k]; });
 
   const e = {
     id: uid(), d: state.date, fid: food.id, n: food.n, g: Number(grams),
@@ -1411,7 +1696,7 @@ function previewPortion() {
   const grid = $('#psMicroGrid');
   grid.innerHTML = '';
   let unknown = 0;
-  MICROS.forEach(m => {
+  MICRO_STORED.forEach(m => {
     const per100 = f[m.k];
     const known = typeof per100 === 'number';
     if (!known) unknown++;
@@ -1450,7 +1735,7 @@ function commitPortion() {
        breakdown stops counting it as unknown. */
     if (!ps.entry.m) {
       const micro = {};
-      MICROS.forEach(m => { if (typeof ps.food[m.k] === 'number') micro[m.k] = ps.food[m.k]; });
+      MICRO_STORED.forEach(m => { if (typeof ps.food[m.k] === 'number') micro[m.k] = ps.food[m.k]; });
       ps.entry.m = micro;
     }
     saveEntries();
@@ -1515,7 +1800,7 @@ function saveRename() {
    ===================================================================== */
 
 let fsEditingId = null, fsForceId = null, fsAi = null;
-const FS_MICRO_IDS = { fb: '#fFb', sg: '#fSg', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
+const FS_MICRO_IDS = { fb: '#fFb', sg: '#fSg', as: '#fAs', na: '#fNa', ch: '#fCh', ca: '#fCa', fe: '#fFe' };
 
 /* `food`  -> editing something already in the library
    `opts.prefill` -> a new food with values filled in for review (the AI path)
@@ -1538,12 +1823,12 @@ function openFoodEditor(food, presetName, opts = {}) {
   $('#fServe').value = src ? (src.serve || (src.u && src.u[0] ? src.u[0].g : '')) : '';
   $('#fServeLabel').value = src ? (src.sl || (src.u && src.u[0] ? src.u[0].l : '')) : '';
 
-  MICROS.forEach(m => {
+  MICRO_STORED.forEach(m => {
     $(FS_MICRO_IDS[m.k]).value = src && typeof src[m.k] === 'number' ? src[m.k] : '';
   });
 
   /* AI results always open expanded — the whole point is that you check them. */
-  const anyMicro = src && MICROS.some(m => typeof src[m.k] === 'number');
+  const anyMicro = src && MICRO_STORED.some(m => typeof src[m.k] === 'number');
   setExpanded($('#fsMoreBtn'), $('#fsMicros'), !!(anyMicro || fsAi));
 
   const banner = $('#fsAiBanner');
@@ -1611,7 +1896,7 @@ function saveFoodFromEditor() {
      way to drop a built-in seed value. A field that was blank all along is
      omitted, so it can still inherit from the seed food. */
   const inherited = fsEditingId ? (foodById(fsEditingId) || {}) : {};
-  MICROS.forEach(m => {
+  MICRO_STORED.forEach(m => {
     const v = numOrUndef($(FS_MICRO_IDS[m.k]).value);
     if (v !== undefined) rec[m.k] = v;
     else if (typeof inherited[m.k] === 'number') rec[m.k] = null;
@@ -1722,6 +2007,16 @@ function offMicros(nu) {
 
   put('fb', nu.fiber_100g, 100);
   put('sg', nu.sugars_100g, 100);
+
+  /* OFF's added-sugars field is crowd-entered and unvalidated — there are
+     live products listing 10 g added against 9.4 g total, which cannot be
+     true. Anything above the total is a data error, not a number to import,
+     so it is dropped and added sugar stays unknown for that food. */
+  const addedRaw = nu['added-sugars_100g'];
+  if (typeof addedRaw === 'number' && Number.isFinite(addedRaw) && addedRaw >= 0 && addedRaw <= 100) {
+    const total = m.sg;
+    if (typeof total !== 'number' || addedRaw <= total + 0.51) m.as = r1(Math.min(addedRaw, total == null ? addedRaw : total));
+  }
   put('na', nu.sodium_100g != null ? nu.sodium_100g * 1000
           : nu.salt_100g != null ? nu.salt_100g * 400 : undefined, 20000);
   put('ch', mg(nu.cholesterol_100g), 5000);
@@ -2035,8 +2330,14 @@ const AI_SYSTEM = [
   '',
   'Rules:',
   '- Every nutrient value is PER 100 g of the food as eaten (per 100 ml if it is a drink).',
-  '- kcal is kilocalories. protein_g, carbs_g, fat_g, fiber_g, sugar_g are grams.',
+  '- kcal is kilocalories. protein_g, carbs_g, fat_g, fiber_g are grams.',
   '  sodium_mg, cholesterol_mg, calcium_mg, iron_mg are milligrams.',
+  '- total_sugar_g is ALL sugars including the lactose in dairy and the fructose in fruit.',
+  '- added_sugar_g is only sugar added during making or processing: table sugar, jaggery,',
+  '  honey, syrup, concentrated juice. Plain milk, plain curd, plain fruit and plain rice',
+  '  are 0. Never let added_sugar_g exceed total_sugar_g.',
+  '- If a food varies so much that added sugar genuinely cannot be estimated, use null for',
+  '  added_sugar_g rather than guessing. null is better than a wrong number here.',
   '- Keep it internally consistent: protein_g*4 + carbs_g*4 + fat_g*9 must be close to kcal.',
   '- portion_label and portion_g describe ONE typical serving as sold or served,',
   '  e.g. portion_label "1 wrap" with portion_g 250.',
@@ -2048,7 +2349,8 @@ const AI_SYSTEM = [
   '',
   'JSON shape:',
   '{"name":string,"kcal":number,"protein_g":number,"carbs_g":number,"fat_g":number,',
-  ' "fiber_g":number,"sugar_g":number,"sodium_mg":number,"cholesterol_mg":number,',
+  ' "fiber_g":number,"total_sugar_g":number,"added_sugar_g":number|null,',
+  ' "sodium_mg":number,"cholesterol_mg":number,',
   ' "calcium_mg":number,"iron_mg":number,"portion_label":string,"portion_g":number,',
   ' "confidence":"high"|"medium"|"low"}',
 ].join('\n');
@@ -2061,7 +2363,8 @@ const AI_FIELDS = [
   { to: 'c',    min: 0, max: 100,   aliases: ['carbsg', 'carbs', 'carbohydratesg', 'carbohydrates', 'carbohydrate', 'totalcarbohydrate'] },
   { to: 'f',    min: 0, max: 100,   aliases: ['fatg', 'fat', 'fats', 'totalfat'] },
   { to: 'fb',   min: 0, max: 100,   aliases: ['fiberg', 'fiber', 'fibreg', 'fibre', 'dietaryfiber', 'dietaryfibre'] },
-  { to: 'sg',   min: 0, max: 100,   aliases: ['sugarg', 'sugar', 'sugarsg', 'sugars', 'totalsugars'] },
+  { to: 'sg',   min: 0, max: 100,   aliases: ['totalsugarg', 'totalsugar', 'totalsugars', 'totalsugarsg', 'sugarg', 'sugar', 'sugarsg', 'sugars'] },
+  { to: 'as',   min: 0, max: 100,   aliases: ['addedsugarg', 'addedsugar', 'addedsugars', 'addedsugarsg', 'freesugars', 'freesugar'] },
   { to: 'na',   min: 0, max: 20000, aliases: ['sodiummg', 'sodium'] },
   { to: 'ch',   min: 0, max: 5000,  aliases: ['cholesterolmg', 'cholesterol'] },
   { to: 'ca',   min: 0, max: 5000,  aliases: ['calciummg', 'calcium'] },
@@ -2120,6 +2423,11 @@ function coerceEstimate(raw) {
 
   /* Calories are the one field we cannot proceed without. */
   if (values.kcal === undefined) return null;
+
+  /* Added sugar cannot exceed total sugar. A model that says otherwise has
+     contradicted itself, so the added figure is dropped rather than shown
+     for confirmation as though it were a real reading. */
+  if (values.as !== undefined && values.sg !== undefined && values.as > values.sg + 0.51) delete values.as;
 
   const pick = (...keys) => { for (const k of keys) if (flat[k] != null && flat[k] !== '') return flat[k]; };
   const conf = String(pick('confidence', 'certainty') || '').toLowerCase();
@@ -2615,6 +2923,9 @@ const ADVICE_SYSTEM = [
   '  clearly OVER a limit or well under a minimum, work it into the same sentence by choosing a food',
   '  that helps — dal or vegetables for fibre, curd or milk for calcium. Do not list them or add a',
   '  second piece of advice about them.',
+  '- Sugar is split. ADDED sugar is the one to limit. NATURAL sugar is the lactose in milk and',
+  '  the sugar in fruit and dates; it has no health limit, so never discourage milk, curd, fruit',
+  '  or dates on account of it, and never mention total sugar as a problem.',
   '- A nutrient marked "not reported" is missing data, not a deficiency. Never tell them they are low',
   '  on something no food reported.',
   '- If they are already over both targets, say so plainly and suggest stopping or something light.',
@@ -3015,7 +3326,7 @@ function renderAdvice() {
    ===================================================================== */
 
 const TARGET_FIELDS = { kcal: '#tKcal', p: '#tP', c: '#tC', f: '#tF', water: '#tW' };
-const ALL_TARGET_KEYS = ['kcal', 'p', 'c', 'f', 'water', 'fb', 'sg', 'na', 'ch', 'ca', 'fe'];
+const ALL_TARGET_KEYS = ['kcal', 'p', 'c', 'f', 'water', 'fb', 'sg', 'as', 'ns', 'na', 'ch', 'ca', 'fe'];
 const TARGET_LABELS = {
   kcal: 'Calories', p: 'Protein', c: 'Carbs', f: 'Fat', water: 'Water',
   fb: 'Fibre', sg: 'Sugar', na: 'Sodium', ch: 'Cholesterol', ca: 'Calcium', fe: 'Iron',
@@ -3377,6 +3688,142 @@ function localFocusGuess(text) {
 }
 
 /* =====================================================================
+   WORKOUT TAB
+   ===================================================================== */
+
+function renderWorkout() {
+  const focusKey = activeFocus();
+  const sess = sessionFor(focusKey);
+  const d = todayStr();
+  const rec = workoutFor(d);
+  const done = rec ? rec.done : [];
+  const ids = allExerciseIds(sess);
+
+  /* Focus chips */
+  const chips = $('#woFocus');
+  chips.innerHTML = '';
+  WORKOUT_FOCUS.forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (f.k === focusKey ? ' on' : '');
+    b.textContent = f.label;
+    b.onclick = () => {
+      state.workout.focus = f.k;
+      saveWorkout();
+      renderWorkout();
+    };
+    chips.appendChild(b);
+  });
+
+  $('#woFocusNote').textContent = state.workout.focus
+    ? 'Your choice. Tap another any time.'
+    : hasProfile()
+      ? `Suggested from your profile goal. Tap any chip to choose your own.`
+      : 'A sensible default — set up My Profile in Settings and this follows your goal instead.';
+
+  $('#woDoneCount').textContent = `${done.filter(x => ids.includes(x)).length}/${ids.length}`;
+  $('#woMins').textContent = sess.minutes;
+  $('#woStreak').textContent = workoutStreak();
+
+  /* Blocks */
+  const wrap = $('#woBlocks');
+  wrap.innerHTML = '';
+  sess.blocks.forEach(block => {
+    const h = document.createElement('h2');
+    h.className = 'sect';
+    h.textContent = block.label;
+    wrap.appendChild(h);
+
+    const card = document.createElement('div');
+    card.className = 'card wolist';
+    block.ex.forEach(e => {
+      const isDone = done.includes(e.id);
+      const row = document.createElement('button');
+      row.className = 'worow' + (isDone ? ' done' : '');
+      row.innerHTML = `
+        <span class="wotick" aria-hidden="true">${isDone ? '&#10003;' : ''}</span>
+        <span class="woinfo">
+          <b>${escapeHtml(e.name)}</b>
+          <small>${e.sets} × ${e.hold ? e.reps + ' s' : e.reps}${
+            e.note ? ' · ' + escapeHtml(e.note) : ''}</small>
+        </span>`;
+      row.setAttribute('aria-pressed', isDone ? 'true' : 'false');
+      row.onclick = () => {
+        toggleExercise(d, e.id);
+        renderWorkout();
+        renderWorkoutBanner();
+        if (workoutComplete(d)) toast(`Session done · ${workoutStreak()} day streak`);
+      };
+      card.appendChild(row);
+    });
+    wrap.appendChild(card);
+  });
+
+  const wk = workoutWeekCount();
+  $('#woNote').textContent = workoutComplete(d)
+    ? `Every exercise ticked today. ${wk} full session${wk === 1 ? '' : 's'} in the last 7 days.`
+    : `Circuit style: one round of everything, then repeat — ${ROUNDS} rounds in all, moving straight `
+      + `on between exercises and taking about a minute between rounds. Tick each exercise as you `
+      + `finish it; a part-finished session still counts. `
+      + `${wk} full session${wk === 1 ? '' : 's'} in the last 7 days.`;
+
+  renderWorkoutBanner();
+}
+
+function renderWorkoutBanner() {
+  const banner = $('#woBanner');
+  const due = workoutDue();
+  if (!due) { banner.classList.add('hidden'); return; }
+  $('#woBannerTitle').textContent = `It’s past ${minToPretty(due.min)} — nothing ticked off yet today`;
+  $('#woBannerHint').textContent = `Today’s session is about ${sessionFor(activeFocus()).minutes} minutes. `
+    + 'Tick exercises as you go; a part-finished session still counts.';
+  banner.classList.remove('hidden');
+}
+
+/* ------------------------ workout times in Settings ------------------------ */
+
+function renderWorkoutTimes() {
+  const list = $('#woTimeList');
+  list.innerHTML = '';
+  const times = state.workout.times || [];
+
+  if (!times.length) {
+    const p = document.createElement('p');
+    p.className = 'hint';
+    p.textContent = 'No workout times set — the Workout tab still works, it just will not nudge you.';
+    list.appendChild(p);
+  }
+
+  times.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'timerow';
+    const input = document.createElement('input');
+    input.type = 'time';
+    input.value = minToHHMM(t.min);
+    input.onchange = () => {
+      const v = parseTimeInput(input.value);
+      if (v == null) { input.value = minToHHMM(t.min); return; }
+      t.min = v;
+      state.workout.times.sort((a, b) => a.min - b.min);
+      saveWorkout();
+      renderWorkoutTimes();
+      renderWorkoutBanner();
+    };
+    const del = document.createElement('button');
+    del.className = 'ghost small';
+    del.textContent = 'Remove';
+    del.onclick = () => {
+      state.workout.times = state.workout.times.filter(x => x.id !== t.id);
+      saveWorkout();
+      renderWorkoutTimes();
+      renderWorkoutBanner();
+    };
+    row.appendChild(input);
+    row.appendChild(del);
+    list.appendChild(row);
+  });
+}
+
+/* =====================================================================
    FOODS TAB
    ===================================================================== */
 
@@ -3413,6 +3860,7 @@ function renderSettings() {
   $('#aiKey').value = state.ai.key || '';
   $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
   renderAiStatus();
+  renderWorkoutTimes();
   checkTargetMath();
 }
 
@@ -3500,6 +3948,7 @@ function exportBackup() {
     water: state.water, names: state.names,
     burn: state.burn, advice: state.advice, features,
     profile: state.profile, customTargets: state.customTargets,
+    workout: state.workout,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -3540,11 +3989,25 @@ function importBackup(file) {
       /* Body stats and which targets were hand-set travel together — importing
          the targets without the overrides would let the next recalculation
          quietly undo edits the backup was meant to preserve. */
-      if (d.profile) state.profile = Object.assign({}, DEFAULT_PROFILE, d.profile);
+      if (d.profile) state.profile = Object.assign({}, DEFAULT_PROFILE, d.profile, {
+        focus: Array.isArray(d.profile.focus) ? d.profile.focus.slice() : [],
+      });
       if (Array.isArray(d.customTargets)) state.customTargets = d.customTargets.slice();
+      if (d.workout) {
+        state.workout = {
+          focus: d.workout.focus || state.workout.focus || null,
+          times: Array.isArray(d.workout.times) && d.workout.times.length
+            ? d.workout.times.map(t => ({ id: t.id || uid(), min: t.min }))
+            : state.workout.times.map(t => ({ ...t })),
+          /* Days merge rather than replace, matching how entries and foods
+             import — a backup from another device should not erase a session
+             logged on this one. */
+          log: Object.assign({}, state.workout.log, JSON.parse(JSON.stringify(d.workout.log || {}))),
+        };
+      }
 
       saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice();
-      saveTargets(); saveAi(); saveProfile(); saveCustomTargets();
+      saveTargets(); saveAi(); saveProfile(); saveCustomTargets(); saveWorkout();
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {
@@ -3722,6 +4185,7 @@ function showView(name) {
 
   renderDate();
   if (name === 'week') renderWeek();
+  if (name === 'workout') renderWorkout();
   if (name === 'foods') renderLibrary();
   if (name === 'settings') renderSettings();
   if (name === 'add') { renderRecent(); setTimeout(() => $('#searchInput').focus(), 60); }
@@ -3808,6 +4272,21 @@ function init() {
     renderAdvice();
     toast(features.ai ? 'AI features on' : 'AI features hidden — your key is kept');
   };
+  /* workout */
+  $('#woDismiss').onclick = () => { workoutBannerDismissed = true; renderWorkoutBanner(); };
+  $('#woAddTime').onclick = () => {
+    const mins = (state.workout.times || []).map(t => t.min);
+    /* Offset a new one so two rows never sit on the same minute and look
+       like a duplicate that will not delete. */
+    let m = 18 * 60;
+    while (mins.includes(m)) m = (m + 30) % 1440;
+    state.workout.times.push({ id: uid(), min: m });
+    state.workout.times.sort((a, b) => a.min - b.min);
+    saveWorkout();
+    renderWorkoutTimes();
+    renderWorkoutBanner();
+  };
+
   $('#adviceAgain').onclick = () => {
     const slot = currentAdviceSlot(state.date);
     if (slot) requestAdvice(state.date, slot, { force: true });
@@ -3963,6 +4442,7 @@ function init() {
       state.date = todayStr();
       state.weekStart = mondayOf(state.date);
       bannerDismissed = false;
+      workoutBannerDismissed = false;
     }
     renderAll();
   });
@@ -3977,6 +4457,8 @@ function init() {
   /* Best-effort, and never blocks anything: the water target falls back to a
      warm-climate figure when this fails or the device is offline. */
   refreshWeather().then(w => { if (w) { renderWater(); renderSettings(); } });
+
+  renderWorkoutBanner();
 
   /* Say it out loud as well as in Settings — a model changing under you is
      not something to find out from a failed suggestion. */

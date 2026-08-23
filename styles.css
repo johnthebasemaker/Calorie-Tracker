@@ -569,7 +569,9 @@ button { font-family: inherit; cursor: pointer; }
 /* ------------------------------ tab bar ------------------------------ */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  /* minmax(0,…) so a six-column bar cannot be widened past the viewport by
+     its own labels — the same trap that caused horizontal scroll before. */
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   height: calc(var(--tabh) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
   background: color-mix(in srgb, var(--card) 92%, transparent);
@@ -579,10 +581,11 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tab {
   border: 0; background: none; color: var(--faint);
-  font-size: 11px; font-weight: 600;
+  font-size: 10px; font-weight: 600; padding: 0 2px; min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
 }
 .tab .ic { font-size: 17px; line-height: 1; }
+.tab > :not(.ic) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab.active { color: var(--accent); }
 
 /* ------------------------------ sheets ------------------------------ */
@@ -730,3 +733,44 @@ input[type=number] { -moz-appearance: textfield; }
   background: var(--bg); color: var(--text); -webkit-appearance: none;
 }
 .timerow input:disabled { opacity: .55; }
+
+
+/* ------------------------------ workout ------------------------------ */
+.wotop { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.wotop > div { min-width: 0; }
+.wotop b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.wotop span { font-size: 11px; color: var(--dim); }
+
+.wolist { padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.worow {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
+  padding: 11px 10px; border: 0; border-radius: 10px;
+  background: none; color: var(--text); text-align: left;
+}
+.worow:active { background: var(--card-2); }
+.worow .wotick {
+  flex: 0 0 24px; height: 24px; border-radius: 7px;
+  border: 2px solid var(--line); display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; color: transparent;
+}
+.worow.done .wotick { background: var(--accent); border-color: var(--accent); color: #fff; }
+.worow .woinfo { min-width: 0; }
+.worow .woinfo b { display: block; font-size: 15px; font-weight: 600; }
+.worow.done .woinfo b { color: var(--dim); text-decoration: line-through; }
+.worow .woinfo small { display: block; font-size: 12px; color: var(--dim); margin-top: 2px; }
+
+/* Same look as the burn check-in nudge, so it reads as the same kind of thing. */
+.wkbanner {
+  position: relative; background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--radius); padding: 14px 40px 14px 14px; margin-bottom: 14px;
+}
+.wkbanner b { display: block; font-size: 15px; }
+.wkbanner p { margin: 6px 0 0; font-size: 13px; color: var(--dim); line-height: 1.45; }
+.wkbanner .bx {
+  position: absolute; top: 8px; right: 8px; width: 30px; height: 30px;
+  border: 0; background: none; color: var(--faint); font-size: 20px; line-height: 1;
+}
+
+/* An informational ceiling: says where you are, never sounds an alarm. */
+.microgrid .micro-info i { color: var(--dim); }
