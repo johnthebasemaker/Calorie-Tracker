@@ -192,6 +192,29 @@ repo, and it is deliberately **excluded from backup exports** — a backup file
 tends to get emailed or synced around, and a leaked key is someone else spending
 your credit. The model name does travel in the backup; the key never does.
 
+**Keeping the monologue off the screen.** Because `openrouter/free` routes to a
+different model each call, some of them think out loud. Three shapes turn up: a
+separate `reasoning` field, `<think>` tags, or no separation at all. The first is
+dropped outright — an earlier version fell back to it when `content` came back
+empty, which was defensible while one reasoning model was pinned, and became a bug
+the moment the router started rotating. Tags and the gpt-oss `<|channel|>` format
+are cut out. The unseparated case has no marker to split on, so lines that restate
+the task, narrate a plan, or read as a scratchpad label are dropped.
+
+What survives is then checked here rather than merely requested in the prompt: over
+50 words, a list, a leading label, or anything still talking about "the user" is
+rejected. A rejected answer is retried once — a fresh roll of the router's dice,
+with a blunter instruction — and if that fails too you get *"Couldn't get a clean
+suggestion that round"* rather than a truncated paragraph of someone else's
+thinking. A reply that ran out of budget mid-thought is retried the same way; a
+rejected key or a rate limit is not, because a second try cannot fix those.
+
+**Slow models** are retried once automatically rather than given a longer leash.
+A timeout under `openrouter/free` usually means the router landed on a slow model,
+so a retry is a different model rather than the same one being asked to hurry.
+Only if both attempts time out does anything appear on screen. Both the Suggest
+card and Settings → Test connection go through the same path.
+
 **If a suggestion fails**, the message names the actual cause — the HTTP status
 and OpenRouter's own words. A rate limit says it is a rate limit and how long to
 wait; a bad model id says so; only a genuinely unreachable server blames the
@@ -249,9 +272,15 @@ all, because "no data" and "below the minimum" are different claims.
 
 Defaults are general adult male reference values: fibre 30 g, sugar 36 g, sodium
 2300 mg, cholesterol 300 mg, calcium 1000 mg, iron 8 mg. Iron is 8 mg because that
-is the adult male RDA — 18 mg is the figure for menstruating women. Edit any of
-them under Settings → Daily targets → **Other nutrients**, or clear one to switch
-its flag off.
+is the adult male RDA — 18 mg is the figure for menstruating women. Fill in **My
+profile** and these are calculated for you instead. Edit any of them under
+Settings → Daily targets → **Other nutrients**, or clear one to switch its flag off.
+
+**Daily or weekly.** Sugar and sodium are judged day by day, because their effects
+— blood glucose, blood pressure — genuinely are acute. Cholesterol, calcium and
+iron act over weeks, through stores and bone turnover, so those three show a
+**7-day average** and one heavy or light day is not a miss. Days with nothing
+logged are left out of the average rather than counted as zero.
 
 **One honest caveat on sugar.** 36 g is the *added* sugar guideline, but the only
 data available anywhere — Open Food Facts and the seed table alike — is *total*
@@ -279,6 +308,55 @@ food while on a past date logs it to that date — useful after a long shift.
 
 ---
 
+## My profile
+
+Optional. Skip it and everything above still works on generic adult values.
+
+Fill in height, weight, age and sex and the targets are calculated instead of
+assumed. **BMR** uses Mifflin-St Jeor (1990), which the Academy of Nutrition and
+Dietetics prefers over Harris-Benedict for predictive accuracy. **Maintenance**
+comes from your real burn where there is any — three days of check-ins is enough
+— because a measured figure beats a guessed activity multiplier every time. Apple
+Health reports *active* energy, so it is added to BMR rather than multiplying it,
+with 10 % on top for the thermic effect of food.
+
+**Goals are capped at what the evidence supports.** Gaining is limited to 0.5 % of
+bodyweight a week, losing to 1 %, and calories never go below your BMR. Ask for
+10 kg in 6 weeks at 72 kg and it says so plainly: that is 1.67 kg a week, it caps
+to 0.36, and it tells you the honest answer is about 28 weeks. Faster gain is
+mostly fat; steeper deficits cost the muscle a gaining phase is for.
+
+**Protein** follows the training literature: 1.8 g/kg gaining, 2.2 g/kg in a
+deficit to protect lean mass, 1.6 g/kg maintaining — the range where gains plateau
+in Morton et al. (2018) and Helms et al. (2014). Fat holds at 25 % of energy with
+a floor of 0.8 g/kg and 20 % of calories; carbs take the remainder.
+
+**Focus areas** shift the emphasis. Hair growth raises iron and protein, because
+low ferritin is the most common dietary factor in shedding. Belly and full-body
+fat loss raise protein and fibre for satiety and tighten sugar. Muscle gain pushes
+protein toward the top of the range. The free-text box goes to the model, which
+maps it onto the same fixed list — it can shift emphasis, it cannot invent a
+nutrient. With no key, a keyword pass covers the obvious cases offline.
+
+Every source is cited in the code comments above `computeTargets`, so the
+arithmetic can be checked rather than trusted.
+
+**Water follows the weather.** Type your city once — it is geocoded and cached, so
+there is no location permission prompt and nothing precise leaves the device.
+35 ml/kg is the baseline, plus roughly 600 ml per 1000 kcal of measured activity,
+plus 4 % per degree above 27 °C capped at +50 %. In Riyadh at 43 °C that is the
+difference between 2,900 ml and 3,800 ml. Open-Meteo needs no key and no account.
+Offline, the last good forecast is used and its age is shown; with no city at all
+it assumes warm rather than temperate.
+
+**Nothing is ever taken from you.** Type over any target and it is tagged
+**CUSTOM** and skipped by every recalculation. Update your weight weekly, tap
+Recalculate, and anything you set by hand is listed with its old and new value so
+you can tick which to accept — the rest update silently. Each custom row carries
+its own reset, and it stops being custom the moment you take the calculated value.
+
+---
+
 ## Backup — please actually do this
 
 iOS clears website data for sites you haven't opened in a while. Adding the app
@@ -298,7 +376,7 @@ you'll paste that in again on a new device.
 | `index.html` | All markup — four tabs and two bottom sheets |
 | `styles.css` | Mobile-first styling, automatic light/dark |
 | `foods.js` | The seeded food database + its micronutrient table |
-| `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning, AI |
+| `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning, AI, the nutrition engine |
 | `vendor/` | html5-qrcode, committed so scanning works offline |
 | `sw.js` | Service worker; caches the app shell for offline use |
 | `manifest.webmanifest` | PWA metadata for Add to Home Screen |

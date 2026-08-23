@@ -6,6 +6,9 @@
 
 const KEY = {
   set:   'ct.settings.v1',
+  prof:  'ct.profile.v1',   // body stats, goal and focus areas — all optional
+  cust:  'ct.custom.v1',    // target keys edited by hand; recalculation asks first
+  wx:    'ct.weather.v1',   // last good forecast, so a flight or a dead link still works
   foods: 'ct.foods.v1',
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
@@ -75,15 +78,35 @@ const DEFAULT_TARGETS = {
 
    `dir` is which way the target runs: 'max' for something to stay under,
    'min' for something to reach. `note` explains a target that needs it. */
+/* `span` is the window the target is judged over. Sugar and sodium act
+   acutely — blood glucose, blood pressure — so a daily figure is the useful
+   one. Iron works through stores, calcium through bone turnover and dietary
+   cholesterol through chronic intake, so those three are judged on a 7-day
+   rolling average and a single heavy day is not a failure. */
 const MICROS = [
-  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1, dir: 'min' },
-  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1, dir: 'max',
+  { k: 'fb', label: 'Fibre',       unit: 'g',  dp: 1, dir: 'min', span: 'day' },
+  { k: 'sg', label: 'Sugar',       unit: 'g',  dp: 1, dir: 'max', span: 'day',
     note: 'added-sugar target, measured against total sugars' },
-  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0, dir: 'max' },
-  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0, dir: 'max' },
-  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0, dir: 'min' },
-  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1, dir: 'min' },
+  { k: 'na', label: 'Sodium',      unit: 'mg', dp: 0, dir: 'max', span: 'day' },
+  { k: 'ch', label: 'Cholesterol', unit: 'mg', dp: 0, dir: 'max', span: 'week' },
+  { k: 'ca', label: 'Calcium',     unit: 'mg', dp: 0, dir: 'min', span: 'week' },
+  { k: 'fe', label: 'Iron',        unit: 'mg', dp: 1, dir: 'min', span: 'week' },
 ];
+
+/* Mean intake per day across the 7 days ending on `d`, counting only days
+   with food logged. Counting empty days as zero would report a holiday as
+   an iron deficiency. */
+function microWeekAvg(k, d) {
+  let sum = 0, days = 0, reported = 0;
+  for (let i = 0; i < 7; i++) {
+    const day = shiftDate(d, -i);
+    if (!entriesFor(day).length) continue;
+    days++;
+    const t = microTotalsFor(day)[k];
+    if (t.have > 0) { sum += t.sum; reported++; }
+  }
+  return { avg: days ? sum / days : 0, days, reported };
+}
 
 /* Where a day's figure sits against its target. Only ever called with a
    known total — an unreported nutrient has no state at all, because "no
@@ -101,6 +124,299 @@ function microState(m, value) {
   return { cls: 'under', label: 'under' };
 }
 
+/* =====================================================================
+   PERSONAL NUTRITION ENGINE
+
+   Everything here is optional. With no profile the app keeps the generic
+   adult defaults it shipped with; a profile only replaces those numbers.
+
+   Sources, so the arithmetic can be checked rather than trusted:
+   - BMR: Mifflin MD, St Jeor ST et al., Am J Clin Nutr 1990. Preferred over
+     Harris-Benedict by the Academy of Nutrition and Dietetics for accuracy
+     in non-obese and obese adults alike.
+   - Activity multipliers: the conventional 1.2 / 1.375 / 1.55 / 1.725 / 1.9
+     ladder. Only used when there is no measured burn to use instead.
+   - Rate of gain: 0.25-0.5 % of bodyweight per week. Faster is mostly fat
+     (Garthe et al. 2013; Slater & Phillips 2011).
+   - Rate of loss: 0.5-1 % of bodyweight per week, and never below BMR.
+   - Energy per kg of tissue: 7700 kcal, the standard planning figure.
+   - Protein: 1.6 g/kg is where gains plateau for resistance training
+     (Morton et al., Br J Sports Med 2018). 2.0-2.4 g/kg preserves lean mass
+     in a deficit (Helms et al. 2014). ISSN position stand 1.4-2.0 g/kg.
+   - Fat: >= 20 % of energy for endocrine function; 0.8 g/kg floor.
+   - Fibre: 14 g per 1000 kcal (IOM DRI 2005).
+   - Added sugar: <= 36 g/day for men (AHA 2016), and <= 10 % energy (WHO).
+   - Sodium: 2300 mg CDRR (NASEM 2019), with an allowance for sweat losses.
+   - Cholesterol 300 mg (legacy NCEP), calcium 1000 mg and iron 8 mg are the
+     adult male RDAs (IOM). Iron is 8, not 18 — 18 is for menstruating women.
+   - Water: 35 ml/kg is the usual clinical estimate, plus sweat and heat.
+   ===================================================================== */
+
+const ACTIVITY_LEVELS = [
+  { k: 'sed',   mult: 1.2,   label: 'Desk work, little walking' },
+  { k: 'light', mult: 1.375, label: 'On my feet some of the day' },
+  { k: 'mod',   mult: 1.55,  label: 'On my feet most of the shift' },
+  { k: 'high',  mult: 1.725, label: 'Physical work plus training' },
+  { k: 'vhigh', mult: 1.9,   label: 'Heavy labour, training daily' },
+];
+
+/* Chips, plus the nutrition emphasis each one implies. `protein` and `kcal`
+   are multipliers; the rest are absolute overrides applied as a maximum, so
+   two focuses that both raise iron do not stack into a silly number. */
+const FOCUS_AREAS = [
+  { k: 'hair',    label: 'Hair growth',
+    protein: 1.1, fe: 11, note: 'protein and iron — low ferritin is the most common dietary factor in hair shedding' },
+  { k: 'skin',    label: 'Skin care',
+    protein: 1.05, fb: 34, note: 'protein for collagen turnover, and fibre for gut-skin balance' },
+  { k: 'healthy', label: 'General healthy body',
+    fb: 34, sg: 30, note: 'more fibre, less added sugar' },
+  { k: 'bulk',    label: 'Full body weight gain',
+    protein: 1.1, kcal: 1.0, note: 'protein raised alongside the surplus' },
+  { k: 'muscle',  label: 'Specific muscle gain',
+    protein: 1.25, note: 'protein toward the top of the evidence-based range' },
+  { k: 'belly',   label: 'Belly fat loss',
+    protein: 1.15, fb: 38, sg: 25, na: 2000,
+    note: 'protein and fibre for satiety, tighter sugar and sodium' },
+  { k: 'fatloss', label: 'Full body fat loss',
+    protein: 1.2, fb: 38, sg: 25, note: 'protein high to protect muscle in a deficit' },
+];
+
+const DEFAULT_PROFILE = {
+  h: null, w: null, age: null, sex: 'male',
+  activity: 'mod',
+  goal: 'maintain',        // gain | lose | maintain
+  goalKg: null, goalWeeks: null,
+  focus: [], focusText: '',
+  city: '', lat: null, lon: null, cityLabel: '',
+  aiFocus: null,           // what the model made of focusText
+  updated: null,
+};
+
+const hasProfile = () => !!(state.profile && state.profile.h && state.profile.w && state.profile.age);
+
+/* Mifflin-St Jeor. Sex changes the constant only; it is asked for because
+   leaving it out costs about 160 kcal of accuracy, not for any other reason. */
+function bmrOf(p) {
+  const base = 10 * p.w + 6.25 * p.h - 5 * p.age;
+  return p.sex === 'female' ? base - 161 : base + 5;
+}
+
+/* Real burn beats a guessed multiplier every time. Apple Health's figure is
+   ACTIVE energy — it already excludes resting — so it adds to BMR rather
+   than multiplying it. The 1.1 covers the thermic effect of food, roughly
+   10 % of intake. */
+function tdeeOf(p, measuredActive) {
+  const bmr = bmrOf(p);
+  if (measuredActive != null && measuredActive > 0) {
+    return { tdee: Math.round(bmr * 1.1 + measuredActive), basis: 'measured', bmr, active: Math.round(measuredActive) };
+  }
+  const lvl = ACTIVITY_LEVELS.find(l => l.k === p.activity) || ACTIVITY_LEVELS[2];
+  return { tdee: Math.round(bmr * lvl.mult), basis: 'estimated', bmr, active: null };
+}
+
+/* Mean active burn per day over the days that actually have a day total.
+   Days with no reading are left out rather than counted as zero, which would
+   drag the average down every time a check-in is missed. */
+function recentActiveBurn(days = 14) {
+  const vals = [];
+  for (let i = 1; i <= days; i++) {
+    const t = burnDayTotal(shiftDate(todayStr(), -i));
+    if (t != null && t > 0) vals.push(t);
+  }
+  if (vals.length < 3) return null;      // too few days to mean anything
+  return { avg: vals.reduce((a, b) => a + b, 0) / vals.length, days: vals.length };
+}
+
+/* Cap the ambition, then say what the honest timeline is. A surplus beyond
+   ~0.5 % of bodyweight a week is mostly fat; a deficit beyond 1 % costs
+   muscle, which is the opposite of the point on a gaining phase. */
+function goalPlan(p) {
+  if (p.goal === 'maintain' || !p.goalKg || !p.goalWeeks) {
+    return { kcalDelta: 0, capped: false, weeks: null, ratePerWeek: 0 };
+  }
+  const wanted = Math.abs(p.goalKg) / p.goalWeeks;             // kg per week
+  const maxRate = p.goal === 'gain'
+    ? Math.min(0.5, p.w * 0.005)
+    : Math.min(1.0, p.w * 0.010);
+  const rate = Math.min(wanted, maxRate);
+  const capped = wanted > maxRate + 1e-9;
+  const kcal = Math.round((rate * 7700) / 7);
+  return {
+    kcalDelta: p.goal === 'gain' ? kcal : -kcal,
+    capped, ratePerWeek: rate,
+    weeks: Math.ceil(Math.abs(p.goalKg) / rate),
+    wantedRate: wanted, maxRate,
+  };
+}
+
+/* Merge the selected focus chips plus anything the model made of the free
+   text. Multipliers compound; absolute values take the strongest single
+   claim rather than stacking. */
+function focusEffects(p) {
+  const keys = (p.focus || []).slice();
+  const ai = p.aiFocus && Array.isArray(p.aiFocus.areas) ? p.aiFocus.areas : [];
+  ai.forEach(k => { if (!keys.includes(k)) keys.push(k); });
+
+  const eff = { protein: 1, kcal: 1, notes: [] };
+  keys.forEach(k => {
+    const f = FOCUS_AREAS.find(x => x.k === k);
+    if (!f) return;
+    eff.protein *= f.protein || 1;
+    eff.kcal *= f.kcal || 1;
+    ['fb', 'sg', 'na', 'ch', 'ca', 'fe'].forEach(m => {
+      if (f[m] == null) return;
+      const raise = m === 'fb' || m === 'ca' || m === 'fe';   // minimums go up
+      eff[m] = eff[m] == null ? f[m] : (raise ? Math.max(eff[m], f[m]) : Math.min(eff[m], f[m]));
+    });
+    if (f.note) eff.notes.push(f.label + ': ' + f.note);
+  });
+  eff.protein = Math.min(eff.protein, 1.35);   // keep compounding sane
+  return eff;
+}
+
+/* The whole calculation, returned with its own explanation so the numbers
+   are inspectable rather than magic. */
+function computeTargets(p, opts = {}) {
+  const burn = opts.burn !== undefined ? opts.burn : recentActiveBurn();
+  const { tdee, basis, bmr, active } = tdeeOf(p, burn && burn.avg);
+  const plan = goalPlan(p);
+  const eff = focusEffects(p);
+
+  let kcal = Math.round((tdee + plan.kcalDelta) * eff.kcal);
+  /* Never prescribe below resting metabolism. */
+  const floor = Math.round(bmr);
+  const hitFloor = kcal < floor;
+  if (hitFloor) kcal = floor;
+
+  const gPerKg = p.goal === 'lose' ? 2.2 : p.goal === 'gain' ? 1.8 : 1.6;
+  const protein = Math.round(Math.min(p.w * gPerKg * eff.protein, p.w * 2.5));
+
+  /* Fat: 25 % of energy, never under 0.8 g/kg and never under 20 % of energy. */
+  const fatFloor = Math.max(p.w * 0.8, (kcal * 0.20) / 9);
+  const fat = Math.round(Math.max((kcal * 0.25) / 9, fatFloor));
+
+  /* Carbs take what is left; on any sane input this stays comfortably
+     positive, but clamp at zero rather than print a negative target. */
+  const carbs = Math.max(0, Math.round((kcal - protein * 4 - fat * 9) / 4));
+
+  const micro = {
+    fb: Math.round(Math.min(40, Math.max(25, (kcal / 1000) * 14))),
+    sg: Math.round(Math.min(36, (kcal * 0.10) / 4)),
+    na: 2300,
+    ch: 300,
+    ca: 1000,
+    fe: p.sex === 'female' && p.age < 51 ? 18 : 8,
+  };
+  /* Sweat costs sodium. A hard 2300 mg flags a shift in Gulf heat as "over"
+     when the salt was simply being replaced. */
+  const hot = (state.weather && state.weather.maxC >= 32) || false;
+  if ((active && active > 600) || hot) micro.na = 2600;
+
+  ['fb', 'sg', 'na', 'ch', 'ca', 'fe'].forEach(k => { if (eff[k] != null) micro[k] = eff[k]; });
+
+  return Object.assign({
+    kcal, p: protein, c: carbs, f: fat,
+    water: waterTarget(p, active),
+  }, micro, {
+    meta: { bmr: Math.round(bmr), tdee, basis, active, burnDays: burn && burn.days,
+            plan, hitFloor, gPerKg, notes: eff.notes },
+  });
+}
+
+/* --------------------------- water and weather ---------------------------
+   35 ml/kg is the usual clinical starting point (EFSA lands in the same
+   region for men). Sweat is added from measured burn where there is any,
+   then heat on top. Open-Meteo needs no key and no account and answers with
+   access-control-allow-origin: *, so it works browser-direct from Pages.
+   Everything is cached, and a stale forecast beats no target at all. */
+
+const WATER_BASELINE_ML_PER_KG = 35;
+const WARM_CLIMATE_FALLBACK = 4000;   // used when there is no profile at all
+
+function waterTarget(p, activeKcal) {
+  if (!p || !p.w) return WARM_CLIMATE_FALLBACK;
+
+  let ml = p.w * WATER_BASELINE_ML_PER_KG;
+  /* Roughly 600 ml per 1000 kcal of activity — sweat rates vary hugely, so
+     this is a starting point, not a measurement. */
+  if (activeKcal > 0) ml += (activeKcal / 1000) * 600;
+
+  const maxC = state.weather && typeof state.weather.maxC === 'number' ? state.weather.maxC : null;
+  if (maxC != null && maxC > 27) {
+    /* +4 % per degree above 27 °C, capped at +50 %. A 42 °C day in Riyadh
+       lands at the cap, which is the intent. */
+    ml *= 1 + Math.min(0.5, (maxC - 27) * 0.04);
+  } else if (maxC == null) {
+    ml *= 1.15;   // no forecast: assume warm rather than temperate
+  }
+  return Math.round(Math.min(6000, Math.max(2500, ml)) / 50) * 50;
+}
+
+/* City in, coordinates out. Kept as a separate step from the forecast so the
+   lookup happens once and the coordinates are stored on the profile. */
+async function geocodeCity(name) {
+  const url = 'https://geocoding-api.open-meteo.com/v1/search?count=5&language=en&format=json&name='
+    + encodeURIComponent(name.trim());
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return (data.results || []).map(r => ({
+    label: [r.name, r.admin1, r.country].filter(Boolean).join(', '),
+    lat: r.latitude, lon: r.longitude,
+  }));
+}
+
+/* One call a day is plenty for a daily maximum. The cached reading is used
+   whenever the network is unavailable, which is the offline story: a target
+   from yesterday's weather rather than a failure. */
+async function refreshWeather({ force = false } = {}) {
+  const p = state.profile;
+  if (!p || p.lat == null || p.lon == null) return null;
+
+  const today = todayStr();
+  if (!force && state.weather && state.weather.d === today) return state.weather;
+
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + `?latitude=${p.lat}&longitude=${p.lon}`
+      + '&current=temperature_2m,relative_humidity_2m&daily=temperature_2m_max'
+      + '&forecast_days=1&timezone=auto';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const w = await res.json();
+
+    state.weather = {
+      d: today,
+      maxC: (w.daily && w.daily.temperature_2m_max && w.daily.temperature_2m_max[0]) ?? null,
+      nowC: (w.current && w.current.temperature_2m) ?? null,
+      rh:   (w.current && w.current.relative_humidity_2m) ?? null,
+      place: p.cityLabel || '',
+      ts: Date.now(),
+    };
+    saveWeather();
+    return state.weather;
+  } catch (err) {
+    console.warn('[Macros] weather unavailable:', err.message);
+    /* Keep whatever was last known. Age is shown rather than hidden. */
+    return state.weather || null;
+  }
+}
+
+function weatherNote() {
+  if (cityPending) return 'Pick which city you meant above, and the water target will follow its forecast.';
+  const w = state.weather;
+  if (!w || typeof w.maxC !== 'number') {
+    return hasProfile() && state.profile.lat != null
+      ? 'No forecast yet — using a warm-climate assumption until one loads.'
+      : 'Add your city below and the water target will follow the forecast.';
+  }
+  const stale = w.d !== todayStr();
+  return `${w.place || 'Your city'}: ${Math.round(w.maxC)} °C high`
+    + (typeof w.nowC === 'number' ? `, ${Math.round(w.nowC)} °C now` : '')
+    + (stale ? ` (from ${prettyDate(w.d).toLowerCase()} — no connection since)` : '')
+    + '.';
+}
+
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -113,6 +429,9 @@ const state = {
   water:   [],          // water log rows
   names:   {},          // barcode -> English name
   ai:      { key: '', model: AI_DEFAULT_MODEL },
+  profile: { ...DEFAULT_PROFILE },
+  customTargets: [],    // target keys edited by hand
+  weather: null,
   burn:    [],          // { id, d, cp, cum, ts }
   advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
   date:    todayStr(),
@@ -138,6 +457,9 @@ function load() {
   migrateRetiredModel();
   state.burn    = readJSON(KEY.burn, []);
   state.advice  = readJSON(KEY.advice, {});
+  state.profile = Object.assign({}, DEFAULT_PROFILE, readJSON(KEY.prof, {}));
+  state.customTargets = readJSON(KEY.cust, []);
+  state.weather = readJSON(KEY.wx, null);
 
   /* Must come after burn and ai are read — it decides from them.
      A browser that already has readings or a key was using these before the
@@ -159,6 +481,10 @@ function migrateRetiredModel() {
   modelMigratedFrom = cur;
   saveAi();
 }
+
+const saveProfile = () => writeJSON(KEY.prof, state.profile);
+const saveCustomTargets = () => writeJSON(KEY.cust, state.customTargets);
+const saveWeather = () => writeJSON(KEY.wx, state.weather);
 
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
@@ -582,26 +908,34 @@ function renderTotalsMicros() {
 
   MICROS.forEach(m => {
     const s = totals[m.k];
-    const known = s.have > 0;
+    const weekly = m.span === 'week';
+    /* A weekly nutrient shows its 7-day average, because that is the figure
+       being judged — showing today's number next to a weekly verdict would
+       invite exactly the wrong arithmetic. */
+    const wk = weekly ? microWeekAvg(m.k, state.date) : null;
+    const value = weekly ? wk.avg : s.sum;
+    const known = weekly ? wk.reported > 0 : s.have > 0;
+
     /* Any nutrient not reported by every food is a gap — including one no
        food reported at all, which the old check missed because it only
        looked at nutrients that had some data. That left the card showing
        "—" for calcium while the note claimed all six were reported. */
-    const isPartial = s.total > 0 && s.have < s.total;
+    const isPartial = !weekly && s.total > 0 && s.have < s.total;
     if (isPartial) partial = true;
 
     const target = state.targets[m.k];
     /* No state without data. An unreported sodium is not a low sodium, and
        colouring it green would be a lie the rest of this card avoids. */
-    const st = known ? microState(m, s.sum) : { cls: '', label: '' };
+    const st = known ? microState(m, value) : { cls: '', label: '' };
     if (known && (st.cls === 'over' || st.cls === 'under')) flagged.push(m);
 
     const cell = document.createElement('div');
     cell.className = st.cls ? 'micro-' + st.cls : '';
     cell.innerHTML = `
-      <b class="${known ? '' : 'none'}">${known ? microFmt(s.sum, m) : '—'}${known ? ` <small>${m.unit}</small>` : ''}</b>
-      <span>${m.label}${isPartial && known ? ` (${s.have}/${s.total})` : ''}</span>
-      ${target > 0 ? `<em>${m.dir === 'max' ? 'max' : 'aim'} ${microFmt(target, m)}</em>` : ''}
+      <b class="${known ? '' : 'none'}">${known ? microFmt(value, m) : '—'}${known ? ` <small>${m.unit}</small>` : ''}</b>
+      <span>${m.label}${weekly ? ' <u>7-day</u>' : ''}${isPartial && known ? ` (${s.have}/${s.total})` : ''}</span>
+      ${target > 0 ? `<em>${m.dir === 'max' ? 'max' : 'aim'} ${microFmt(target, m)}${
+        weekly ? '/day' : ''}</em>` : ''}
       ${st.label ? `<i>${st.label}</i>` : ''}`;
     grid.appendChild(cell);
   });
@@ -627,12 +961,20 @@ function renderTotalsMicros() {
     /* The sugar bar is an added-sugar guideline but the only data available
        is total sugars, so milk, dates and fruit all count against it. Saying
        so beats an unexplained red box on an otherwise sensible day. */
-    bits.push('Targets are general adult reference values. The sugar limit is the added-sugar '
-      + 'guideline, but only total sugars are on record — so milk, dates and fruit count towards it.');
+    const weeklyNames = MICROS.filter(m => m.span === 'week').map(m => m.label.toLowerCase());
+    bits.push(`${listWords(weeklyNames.map(cap1))} are averaged over 7 days, not judged on one day — `
+      + 'they act on the body over weeks, so a single heavy or light day is not a miss.');
+    bits.push(hasProfile()
+      ? 'Targets are calculated from your profile. The sugar limit is the added-sugar guideline, '
+        + 'but only total sugars are on record — so milk, dates and fruit count towards it.'
+      : 'Targets are general adult reference values — set up My Profile in Settings for figures based on '
+        + 'your own body and goal. The sugar limit is the added-sugar guideline, but only total sugars '
+        + 'are on record, so milk, dates and fruit count towards it.');
   }
   note.textContent = bits.join(' ');
 }
 
+const cap1 = w => w.charAt(0).toUpperCase() + w.slice(1);
 const listWords = a => a.length <= 1 ? (a[0] || '')
   : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 
@@ -1848,8 +2190,24 @@ function syncModelField() {
 
 /* Shared transport for both AI features: nutrition estimates and meal
    suggestions. Returns the raw assistant text plus the model that answered. */
-async function aiChat(system, user, { timeout = 30000, json = false, maxTokens = 700,
-                                      temperature = 0.2, reasoningEffort = null } = {}) {
+/* One automatic retry on timeout. Under openrouter/free a timeout usually
+   means the router landed on a slow model, and the retry is a fresh roll
+   rather than the same model being asked to hurry — so retrying beats
+   raising the limit and making every real failure take twice as long. */
+async function aiChat(system, user, opts = {}) {
+  if (!opts.noRetry) aiChat.retriedAfterTimeout = false;
+  try {
+    return await aiChatOnce(system, user, opts);
+  } catch (err) {
+    if (err.code !== 'timeout' || opts.noRetry) throw err;
+    console.warn('[Macros] timed out after %ds — retrying once', err.seconds);
+    aiChat.retriedAfterTimeout = true;
+    return aiChatOnce(system, user, Object.assign({}, opts, { noRetry: true }));
+  }
+}
+
+async function aiChatOnce(system, user, { timeout = 30000, json = false, maxTokens = 700,
+                                          temperature = 0.2, reasoningEffort = null } = {}) {
   const key = (state.ai.key || '').trim();
   if (!key) { const e = new Error('nokey'); e.code = 'nokey'; throw e; }
   const model = (state.ai.model || '').trim() || AI_DEFAULT_MODEL;
@@ -1930,23 +2288,25 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     const data = await res.json();
     aiChat.lastRaw = data;
     aiChat.lastModel = data.model || model;
-    aiChat.lastFromReasoning = false;
 
     const choice = (data.choices && data.choices[0]) || {};
     const msg = choice.message || {};
-    let text = msg.content;
+    const text = msg.content;
 
-    /* A reasoning model that runs out of budget mid-thought returns an empty
-       content string with finish_reason "length". Falling back to the
-       reasoning trace salvages an answer that would otherwise be lost. */
-    if (!String(text || '').trim() && String(msg.reasoning || '').trim()) {
-      text = msg.reasoning;
-      aiChat.lastFromReasoning = true;
-    }
+    /* `reasoning` is the model's internal monologue and is NEVER an answer.
+       An earlier version fell back to it when content came back empty, which
+       was defensible while one specific reasoning model was pinned. Under
+       openrouter/free, where a different model answers each call, it meant
+       "We need to give ONE piece of advice... Current Status: Time: 5:36 PM"
+       being shown as the suggestion. Kept on the object for the debug view
+       only. */
+    aiChat.lastReasoning = String(msg.reasoning || '');
 
     if (!String(text || '').trim()) {
       const truncated = choice.finish_reason === 'length';
-      const e = new Error(truncated ? 'reply truncated before any answer' : 'empty reply');
+      const e = new Error(truncated
+        ? (aiChat.lastReasoning ? 'model spent the whole budget thinking' : 'reply truncated before any answer')
+        : 'empty reply');
       e.code = truncated ? 'truncated' : 'parse';
       e.raw = JSON.stringify(data, null, 2);
       e.finish = choice.finish_reason || '';
@@ -1957,7 +2317,7 @@ async function aiChat(system, user, { timeout = 30000, json = false, maxTokens =
     if (err.name === 'AbortError') {
       const e = new Error('timeout');
       e.code = 'timeout';
-      e.seconds = Math.round(timeout / 1000);
+      e.seconds = Math.max(1, Math.round(timeout / 1000));
       throw e;
     }
     if (!err.code) {
@@ -2053,12 +2413,15 @@ function aiErrorText(err) {
 
     case 'timeout': {
       const secs = (err && err.seconds) || 30;
-      return 'The model took longer than ' + secs + (secs === 1 ? ' second' : ' seconds')
-        + ' and the request was given up on. Try again, or pick a faster model in Settings.';
+      return 'Timed out twice — ' + secs + (secs === 1 ? ' second' : ' seconds')
+        + ' each, once on a retry. openrouter/free is routing to a slow model right now; '
+        + 'try again in a moment, or pin a faster model in Settings.';
     }
     case 'truncated':
-      return 'The model used its whole token budget thinking and never wrote an answer. '
-        + 'Raising the limit or lowering reasoning effort usually fixes it — try again, or pick a different model in Settings.';
+      return 'The model spent its whole token budget thinking and never wrote an answer. '
+        + 'openrouter/free picks a different model each time, so trying again usually lands on one that answers.';
+    case 'messy':
+      return 'Couldn’t get a clean suggestion that round — tap Suggest to retry.';
     case 'parse':
       return 'The model replied with something unreadable. Try again, or use a different model in Settings.';
     default:
@@ -2256,6 +2619,18 @@ const ADVICE_SYSTEM = [
   '  on something no food reported.',
   '- If they are already over both targets, say so plainly and suggest stopping or something light.',
   '- Plain sentences. No preamble, no bullet points, no markdown, no emoji, no sign-off.',
+  '- Do not think out loud, restate the question, or explain your reasoning. Output the advice only.',
+].join('\n');
+
+/* Worth a second roll of the router's dice; anything else is a real fault. */
+const ADVICE_RETRYABLE = ['truncated', 'parse', 'upstream'];
+
+/* Said only on the retry, when the first answer came back as monologue. */
+const ADVICE_RETRY_NUDGE = [
+  '',
+  'IMPORTANT: your previous answer was rejected for being too long or for showing your',
+  'working. Reply with the final advice sentence and nothing else — no analysis, no labels,',
+  'no preamble, under 45 words.',
 ].join('\n');
 
 /* A compact library the model can actually ground on: my own foods first,
@@ -2281,7 +2656,20 @@ function advicePrompt(d, slotMin) {
     ? rows.map(e => `- ${e.n}, ${r0(e.g)} g (${r0(macrosOf(e).kcal)} kcal, ${gfmt(macrosOf(e).p)} g protein) at ${minToHHMM(entryMin(e))}`).join('\n')
     : '- nothing logged yet';
 
+  /* The model does better when it knows who it is advising and why the
+     targets are what they are — "gaining, muscle focus" changes what a
+     sensible 300 remaining calories looks like. */
+  const p = state.profile;
+  const who = hasProfile()
+    ? `About them: ${p.age}, ${p.sex}, ${p.h} cm, ${p.w} kg. Goal: ${
+        p.goal === 'gain' ? 'gaining weight' : p.goal === 'lose' ? 'losing weight' : 'maintaining'}.`
+      + (p.focus && p.focus.length
+          ? ` Focus areas: ${p.focus.map(k => (FOCUS_AREAS.find(f => f.k === k) || {}).label).filter(Boolean).join(', ')}.`
+          : '')
+    : '';
+
   return [
+    who,
     `Time now: ${minToPretty(slotMin != null ? slotMin : nowMinutes())}.`,
     `Daily targets: ${state.targets.kcal} kcal, ${state.targets.p} g protein.`,
     `Eaten so far: ${r0(t.kcal)} kcal, ${gfmt(t.p)} g protein.`,
@@ -2290,7 +2678,9 @@ function advicePrompt(d, slotMin) {
       ? `Burned so far (Apple Health): ${r0(burned)} kcal. Balance eaten minus burned: ${signed(t.kcal - burned)} kcal.`
       : 'Burned so far: not recorded yet.',
     '',
-    'Other nutrients so far today (against general adult targets):',
+    hasProfile()
+      ? 'Other nutrients so far today (against targets calculated for them):'
+      : 'Other nutrients so far today (against general adult targets):',
     microLinesForPrompt(d),
     '',
     'Eaten today:',
@@ -2309,20 +2699,131 @@ function microLinesForPrompt(d) {
   const totals = microTotalsFor(d);
   return MICROS.map(m => {
     const s = totals[m.k], target = state.targets[m.k];
-    const aim = target > 0
-      ? ` (${m.dir === 'max' ? 'stay under' : 'aim for at least'} ${microFmt(target, m)} ${m.unit})`
-      : '';
-    if (!s.have) return `- ${m.label}: not reported by any food logged${aim}`;
+    const weekly = m.span === 'week';
+    const wk = weekly ? microWeekAvg(m.k, d) : null;
+    const value = weekly ? wk.avg : s.sum;
+    const known = weekly ? wk.reported > 0 : s.have > 0;
 
-    const st = microState(m, s.sum);
+    const aim = target > 0
+      ? ` (${m.dir === 'max' ? 'stay under' : 'aim for at least'} ${microFmt(target, m)} ${m.unit}${
+          weekly ? ' a day, judged on a 7-day average' : ''})`
+      : '';
+    if (!known) return `- ${m.label}: not reported by any food logged${aim}`;
+
+    const st = microState(m, value);
     const verdict = !target ? ''
       : st.cls === 'over'  ? ' — OVER the limit'
       : st.cls === 'under' ? ' — well under the minimum'
       : st.cls === 'near'  ? (m.dir === 'max' ? ' — close to the limit' : ' — a little short')
       : m.dir === 'max' ? ' — fine' : ' — target met';
-    const partial = s.have < s.total ? `, from only ${s.have} of ${s.total} foods so the real figure is higher` : '';
-    return `- ${m.label}: ${microFmt(s.sum, m)} ${m.unit}${aim}${verdict}${partial}`;
+    const partial = !weekly && s.have < s.total
+      ? `, from only ${s.have} of ${s.total} foods so the real figure is higher` : '';
+    const label = weekly ? `${m.label} (7-day average)` : m.label;
+    return `- ${label}: ${microFmt(value, m)} ${m.unit}${aim}${verdict}${partial}`;
   }).join('\n');
+}
+
+/* ------------------ keeping the monologue off the screen ------------------
+
+   openrouter/free routes to a different model each call, and several of them
+   think out loud. Three shapes turn up:
+
+     a) a separate `reasoning` field   — dropped in aiChat, never gets here
+     b) <think>…</think> around it     — cut out below
+     c) no separation at all, just the monologue then the answer
+
+   (c) is the one that leaked. There is no marker to split on, so the text is
+   read line by line and the tell-tale lines are dropped: restating the task,
+   narrating a plan, and the "Label: value" scratchpad these models write. */
+
+const THINK_BLOCKS = [
+  /<think>[\s\S]*?<\/think>/gi,
+  /<thinking>[\s\S]*?<\/thinking>/gi,
+  /<reasoning>[\s\S]*?<\/reasoning>/gi,
+  /<scratchpad>[\s\S]*?<\/scratchpad>/gi,
+];
+
+/* gpt-oss "harmony" wire format:
+     <|channel|>analysis<|message|>THOUGHT<|end|>…<|channel|>final<|message|>ANSWER
+   The final channel is the answer, so take what follows the last one. With no
+   final channel the whole thing is analysis and the analysis span is cut. */
+const HARMONY_FINAL = /<\|channel\|>final<\|message\|>/gi;
+const HARMONY_ANALYSIS = /<\|channel\|>analysis<\|message\|>[\s\S]*?(?=<\||$)/gi;
+const HARMONY_TOKEN = /<\|[^|>]*\|>/g;
+
+function stripHarmony(t) {
+  if (!/<\|/.test(t)) return t;
+  let last = null, m;
+  HARMONY_FINAL.lastIndex = 0;
+  while ((m = HARMONY_FINAL.exec(t)) !== null) last = m.index + m[0].length;
+  if (last != null) t = t.slice(last);
+  else t = t.replace(HARMONY_ANALYSIS, ' ');
+  return t.replace(HARMONY_TOKEN, ' ');
+}
+
+/* An unclosed opening tag means the model was cut off mid-thought: everything
+   from the tag on is monologue, so drop the tail rather than show it. */
+const THINK_OPEN = /<(?:think|thinking|reasoning|scratchpad)>[\s\S]*$/i;
+
+/* Lines that are the model talking to itself, not to the user. */
+const MONOLOGUE_LINE = new RegExp([
+  '^(?:we|i)\\s+(?:need|should|must|have|will|can|could)\\b',
+  '^(?:let\'?s|let me)\\b',
+  '^the user\\b',
+  '^they\\s+(?:want|need|are|have)\\b',
+  '^(?:okay|ok|alright|right|so|now|first|next|then|finally|hmm)\\b[,:]',
+  '^(?:looking at|based on|given|considering|according to)\\b',
+  '^(?:step|point|option)\\s*\\d+\\b',
+  '^\\d+\\s*[.)]\\s',
+  '^[A-Z][A-Za-z /-]{2,28}:\\s*\\S',          // "Current Status:", "Time:", "Analysis:"
+  '^(?:analysis|reasoning|thinking|thought|plan|draft|notes?)\\b',
+].join('|'), 'i');
+
+/* Where a model marks its own answer. Anything before the last one is thought. */
+const FINAL_MARKER = /(?:^|\n)\s*(?:final answer|final|answer|response|suggestion|advice|output)\s*[:\-–]\s*/gi;
+
+function stripReasoning(raw) {
+  let t = stripHarmony(String(raw || ''));
+  THINK_BLOCKS.forEach(re => { t = t.replace(re, ' '); });
+  t = t.replace(THINK_OPEN, ' ');
+
+  /* If it labelled its answer, take what follows the last such label. */
+  let last = null, m;
+  FINAL_MARKER.lastIndex = 0;
+  while ((m = FINAL_MARKER.exec(t)) !== null) last = m.index + m[0].length;
+  if (last != null && t.slice(last).trim().length > 12) t = t.slice(last);
+
+  const kept = t.split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l && !MONOLOGUE_LINE.test(l));
+
+  /* Everything looked like monologue — fall back to the raw text and let the
+     length check reject it, rather than returning a confident empty string. */
+  return (kept.length ? kept.join(' ') : t).trim();
+}
+
+/* The 45-word rule is in the prompt, but a prompt is a request, not a
+   guarantee. Checked here so a messy answer is retried instead of shown. */
+const ADVICE_MAX_WORDS = 50;
+
+function adviceLooksClean(t) {
+  const s = String(t || '').trim();
+  if (s.length < 12) return { ok: false, why: 'too short' };
+
+  const words = s.split(/\s+/).length;
+  if (words > ADVICE_MAX_WORDS) return { ok: false, why: `${words} words, over the ${ADVICE_MAX_WORDS} limit` };
+
+  /* A colon-label or a bullet that survived the strip means structure, and
+     structure means it is not the one-or-two sentences that were asked for. */
+  if (/^[A-Z][A-Za-z /-]{2,28}:\s/.test(s)) return { ok: false, why: 'starts with a label' };
+  if (/[•]|(?:^|\s)\d+\s*[.)]\s/.test(s)) return { ok: false, why: 'contains a list' };
+  if (MONOLOGUE_LINE.test(s)) return { ok: false, why: 'still reads as internal monologue' };
+  if (/\b(?:the user|we need to|let me|i should|as an ai)\b/i.test(s)) return { ok: false, why: 'talks about the user in the third person' };
+
+  const sentences = s.split(/[.!?]+\s/).filter(x => x.trim().length > 3);
+  if (sentences.length > 3) return { ok: false, why: `${sentences.length} sentences` };
+
+  return { ok: true, why: '' };
 }
 
 /* Keys a model might wrap prose in when it decides to answer with JSON
@@ -2333,7 +2834,7 @@ const ADVICE_KEYS = ['advice', 'suggestion', 'recommendation', 'text', 'message'
 /* Salvage a usable sentence from whatever came back: fenced blocks,
    prose-wrapped JSON, markdown bullets, stray quotes. */
 function cleanAdvice(raw) {
-  let t = String(raw || '').trim();
+  let t = stripReasoning(String(raw || ''));
   if (!t) return '';
 
   const fence = t.match(/```(?:\w+)?\s*([\s\S]*?)```/);
@@ -2385,25 +2886,53 @@ async function requestAdvice(d, cpKey, { force = false } = {}) {
   renderAdvice();
 
   try {
-    /* 160 tokens was the bug: this model reasons first, so the budget was
-       gone before it wrote anything. Give it room and cap the thinking. */
-    const text = await aiChat(ADVICE_SYSTEM, advicePrompt(d, cpKey), {
-      maxTokens: 700, temperature: 0.4, reasoningEffort: 'low',
-    });
-    adviceRawText = typeof text === 'string' ? text : '';
-    console.info('[Macros] advice raw response:', text, aiChat.lastRaw);
+    /* Two attempts. openrouter/free picks a different model per call, so a
+       second try is a genuinely different roll of the dice rather than the
+       same model repeating itself — and the second attempt says so more
+       bluntly in the prompt. 700 tokens because these models reason first;
+       160 once left the budget spent before a word was written. */
+    let clean = '', lastWhy = '', lastErr = null;
+    for (let attempt = 0; attempt < 2 && !clean; attempt++) {
+      const system = attempt === 0 ? ADVICE_SYSTEM : ADVICE_SYSTEM + '\n' + ADVICE_RETRY_NUDGE;
+      let text = '';
+      try {
+        text = await aiChat(system, advicePrompt(d, cpKey), {
+          maxTokens: 700, temperature: attempt === 0 ? 0.4 : 0.2, reasoningEffort: 'low',
+        });
+      } catch (err) {
+        /* A reply that ran out of budget mid-thought is a bad round, not a
+           broken setup — and the router picks a different model next time,
+           so it is worth one more roll. A rejected key or a rate limit is
+           not, and rethrows immediately. */
+        if (!ADVICE_RETRYABLE.includes(err.code) || attempt === 1) throw err;
+        lastErr = err;
+        lastWhy = err.message;
+        console.warn('[Macros] advice attempt 1 failed (%s) — retrying', err.code);
+        continue;
+      }
 
-    const clean = cleanAdvice(text);
+      adviceRawText = typeof text === 'string' ? text : '';
+      console.info('[Macros] advice raw response (attempt %d):', attempt + 1, text, aiChat.lastRaw);
+
+      const candidate = cleanAdvice(text);
+      const verdict = candidate ? adviceLooksClean(candidate) : { ok: false, why: 'nothing usable in reply' };
+      if (verdict.ok) { clean = candidate; break; }
+
+      lastWhy = verdict.why;
+      lastErr = null;
+      console.warn('[Macros] advice attempt %d rejected: %s —', attempt + 1, verdict.why, candidate);
+    }
+
     if (!clean) {
-      throw Object.assign(new Error('nothing usable in reply'),
-        { code: 'parse', raw: JSON.stringify(aiChat.lastRaw, null, 2) });
+      if (lastErr) throw lastErr;
+      throw Object.assign(new Error(lastWhy || 'nothing usable in reply'),
+        { code: 'messy', why: lastWhy, raw: JSON.stringify(aiChat.lastRaw, null, 2) });
     }
     state.advice[key] = {
       text: clean,
       model: aiChat.lastModel || state.ai.model,
       ts: Date.now(),
       cp: cpKey,
-      fromReasoning: !!aiChat.lastFromReasoning,
     };
     saveAdvice();
     adviceError = '';
@@ -2455,7 +2984,7 @@ function renderAdvice() {
 
   /* Whenever there is a raw reply worth inspecting, offer it — that is the
      only way to report what actually came back if this misbehaves again. */
-  if (adviceRawText && (err || (cached && cached.fromReasoning))) {
+  if (adviceRawText && err) {
     rawBtn.classList.remove('hidden');
     rawBox.textContent = adviceRawText;
   }
@@ -2466,8 +2995,7 @@ function renderAdvice() {
        otherwise the button looks like it did nothing. */
     $('#adviceMeta').textContent = err
       ? 'Retry failed — ' + err
-      : `after ${minToPretty(slot)} · ${cached.model || ''}`
-        + (cached.fromReasoning ? ' · recovered from the reasoning trace' : '');
+      : `after ${minToPretty(slot)} · ${cached.model || ''}`;
   } else if (err) {
     $('#adviceText').textContent = err;
     $('#adviceMeta').textContent = adviceRawText ? 'Tap below to see what the model actually sent.' : '';
@@ -2480,6 +3008,372 @@ function renderAdvice() {
     $('#adviceMeta').textContent = '';
   }
   $('#adviceAgain').textContent = cached ? 'Suggest again' : 'Suggest';
+}
+
+/* =====================================================================
+   PROFILE UI
+   ===================================================================== */
+
+const TARGET_FIELDS = { kcal: '#tKcal', p: '#tP', c: '#tC', f: '#tF', water: '#tW' };
+const ALL_TARGET_KEYS = ['kcal', 'p', 'c', 'f', 'water', 'fb', 'sg', 'na', 'ch', 'ca', 'fe'];
+const TARGET_LABELS = {
+  kcal: 'Calories', p: 'Protein', c: 'Carbs', f: 'Fat', water: 'Water',
+  fb: 'Fibre', sg: 'Sugar', na: 'Sodium', ch: 'Cholesterol', ca: 'Calcium', fe: 'Iron',
+};
+const TARGET_UNITS = { kcal: 'kcal', p: 'g', c: 'g', f: 'g', water: 'ml',
+                       fb: 'g', sg: 'g', na: 'mg', ch: 'mg', ca: 'mg', fe: 'mg' };
+
+const fieldFor = k => TARGET_FIELDS[k] || MICRO_TARGET_IDS[k];
+const isCustom = k => state.customTargets.includes(k);
+
+function renderProfile() {
+  const p = state.profile;
+  $('#pfH').value = p.h ?? '';
+  $('#pfW').value = p.w ?? '';
+  $('#pfAge').value = p.age ?? '';
+  $('#pfSex').value = p.sex || 'male';
+  $('#pfGoal').value = p.goal || 'maintain';
+  $('#pfGoalKg').value = p.goalKg ?? '';
+  $('#pfGoalWeeks').value = p.goalWeeks ?? '';
+  $('#pfFocusText').value = p.focusText || '';
+  $('#pfCity').value = p.city || '';
+
+  const act = $('#pfActivity');
+  if (!act.options.length) {
+    ACTIVITY_LEVELS.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.k; o.textContent = l.label;
+      act.appendChild(o);
+    });
+  }
+  act.value = p.activity || 'mod';
+
+  const chips = $('#pfFocus');
+  chips.innerHTML = '';
+  FOCUS_AREAS.forEach(f => {
+    const b = document.createElement('button');
+    b.className = 'chip' + ((p.focus || []).includes(f.k) ? ' on' : '');
+    b.textContent = f.label;
+    b.onclick = () => {
+      const cur = state.profile.focus || [];
+      state.profile.focus = cur.includes(f.k) ? cur.filter(x => x !== f.k) : cur.concat(f.k);
+      renderProfile();
+    };
+    chips.appendChild(b);
+  });
+
+  $('#pfGoalRow').classList.toggle('hidden', p.goal === 'maintain');
+  renderGoalNote();
+  renderBurnNote();
+  if (!cityPending) $('#pfWeather').textContent = weatherNote();
+  $('#pfFocusNote').textContent = p.aiFocus && p.aiFocus.note
+    ? 'From what you wrote: ' + p.aiFocus.note
+    : (p.focusText ? 'Saved. It will be read by the model the next time targets are calculated.' : '');
+  renderProfileSummary();
+}
+
+function renderBurnNote() {
+  const burn = recentActiveBurn();
+  $('#pfBurnNote').textContent = burn
+    ? `Using your real burn instead: ${r0(burn.avg).toLocaleString()} kcal a day on average `
+      + `across the last ${burn.days} days with readings. The dropdown above is ignored while that data exists.`
+    : 'Once you have three days of burn check-ins, your real average replaces this estimate.';
+}
+
+function renderGoalNote() {
+  const p = state.profile;
+  const el = $('#pfGoalNote');
+  if (p.goal === 'maintain') { el.textContent = 'Targets will sit at your maintenance calories.'; return; }
+  if (!p.w || !p.goalKg || !p.goalWeeks) { el.textContent = ''; return; }
+
+  const plan = goalPlan(p);
+  el.textContent = plan.capped
+    ? `${p.goalKg} kg in ${p.goalWeeks} weeks means ${plan.wantedRate.toFixed(2)} kg a week, which is faster than is `
+      + `useful — ${p.goal === 'gain' ? 'the extra is mostly fat' : 'that rate costs muscle'}. `
+      + `Capped at ${plan.ratePerWeek.toFixed(2)} kg a week (${signed(plan.kcalDelta)} kcal a day), `
+      + `which reaches ${p.goalKg} kg in about ${plan.weeks} weeks.`
+    : `${plan.ratePerWeek.toFixed(2)} kg a week — ${signed(plan.kcalDelta)} kcal a day. That is inside the safe range.`;
+}
+
+function renderProfileSummary() {
+  const el = $('#pfSummary');
+  if (!hasProfile()) { el.textContent = 'Height, weight and age are needed before anything can be calculated.'; return; }
+
+  const t = computeTargets(state.profile);
+  const m = t.meta;
+  const bits = [
+    `BMR ${m.bmr.toLocaleString()} kcal (Mifflin-St Jeor).`,
+    m.basis === 'measured'
+      ? `Maintenance ${m.tdee.toLocaleString()} kcal, from your real ${m.active.toLocaleString()} kcal/day burn over ${m.burnDays} days.`
+      : `Maintenance ${m.tdee.toLocaleString()} kcal, estimated from your activity level.`,
+    m.plan.kcalDelta ? `Goal ${signed(m.plan.kcalDelta)} kcal → ${t.kcal.toLocaleString()} kcal.` : `Target ${t.kcal.toLocaleString()} kcal.`,
+    `Protein ${t.p} g (${m.gPerKg} g/kg${m.notes.length ? ', raised by your focus areas' : ''}).`,
+  ];
+  if (m.hitFloor) bits.push('Held at your BMR — the deficit you asked for would have gone below resting metabolism.');
+  if (m.notes.length) bits.push('Focus: ' + m.notes.join('; ') + '.');
+  el.textContent = bits.join(' ');
+}
+
+/* A field the user typed into gets a CUSTOM tag next to its label and a
+   reset link, so it is obvious why recalculation left it alone. */
+function renderCustomMarks() {
+  ALL_TARGET_KEYS.forEach(k => {
+    const input = $(fieldFor(k));
+    if (!input) return;
+    const label = input.closest('.field');
+    if (!label) return;
+    label.classList.toggle('customised', isCustom(k));
+
+    let tag = label.querySelector('.customtag');
+    if (isCustom(k) && !tag) {
+      tag = document.createElement('button');
+      tag.className = 'customtag';
+      tag.type = 'button';
+      tag.textContent = 'custom · reset';
+      tag.onclick = e => { e.preventDefault(); resetOneTarget(k); };
+      label.querySelector('span').appendChild(tag);
+    } else if (!isCustom(k) && tag) {
+      tag.remove();
+    }
+  });
+
+  $('#nutTargetsIntro').textContent = (hasProfile()
+    ? 'Calculated from your profile. '
+    : 'General reference values for a healthy adult male, not personal ones. ')
+    + 'Fibre, calcium and iron are minimums to reach; sugar, sodium and cholesterol are limits to '
+    + 'stay under. Cholesterol, calcium and iron are judged on a 7-day average, not day by day.';
+
+  const n = state.customTargets.length;
+  $('#customNote').textContent = !hasProfile()
+    ? 'Set up My Profile above and these are calculated for you. Any value you type stays yours.'
+    : n
+      ? `${n} target${n > 1 ? 's are' : ' is'} set by you rather than calculated. Recalculating asks before changing ${n > 1 ? 'them' : 'it'}.`
+      : 'All of these are calculated from your profile. Type over any of them and it becomes yours.';
+}
+
+function resetOneTarget(k) {
+  if (!hasProfile()) return;
+  const calc = computeTargets(state.profile);
+  state.targets[k] = Math.round(calc[k]);
+  state.customTargets = state.customTargets.filter(x => x !== k);
+  saveTargets();
+  saveCustomTargets();
+  renderSettings();
+  renderSummary();
+  renderWater();
+  toast(`${TARGET_LABELS[k]} back to the calculated ${r0(state.targets[k]).toLocaleString()} ${TARGET_UNITS[k]}`);
+}
+
+/* ------------------------- saving and recalculating ------------------------- */
+
+function readProfileForm() {
+  const p = state.profile;
+  p.h = +$('#pfH').value || null;
+  p.w = +$('#pfW').value || null;
+  p.age = +$('#pfAge').value || null;
+  p.sex = $('#pfSex').value;
+  p.activity = $('#pfActivity').value;
+  p.goal = $('#pfGoal').value;
+  p.goalKg = +$('#pfGoalKg').value || null;
+  p.goalWeeks = +$('#pfGoalWeeks').value || null;
+  p.focusText = $('#pfFocusText').value.trim();
+  p.city = $('#pfCity').value.trim();
+  p.updated = Date.now();
+}
+
+function profileComplaint(p) {
+  if (!p.h || p.h < 100 || p.h > 250) return 'Height should be somewhere between 100 and 250 cm.';
+  if (!p.w || p.w < 30 || p.w > 300) return 'Weight should be somewhere between 30 and 300 kg.';
+  if (!p.age || p.age < 14 || p.age > 100) return 'Age should be between 14 and 100.';
+  if (p.goal !== 'maintain' && (!p.goalKg || !p.goalWeeks)) return 'Say how many kg and over how many weeks.';
+  if (p.goal !== 'maintain' && p.goalKg > p.w * 0.5) return 'That is more than half your bodyweight — check the number.';
+  return '';
+}
+
+async function saveProfileAndCalc({ recalcOnly = false } = {}) {
+  if (!recalcOnly) readProfileForm();
+  const complaint = profileComplaint(state.profile);
+  if (complaint) { toast(complaint); return; }
+
+  saveProfile();
+
+  /* City -> coordinates -> forecast, all best-effort. A dead network changes
+     the water target's precision, never whether the profile saves. */
+  if (state.profile.city && state.profile.city !== state.profile.cityLabel) {
+    await resolveCity(state.profile.city);
+  }
+  await refreshWeather({ force: true });
+
+  if (state.profile.focusText) await interpretFocusText();
+
+  applyCalculatedTargets();
+  renderProfile();
+}
+
+/* Writes the calculated numbers, but never over a target edited by hand —
+   those are listed and the choice handed back. */
+function applyCalculatedTargets() {
+  const calc = computeTargets(state.profile);
+  const conflicts = [];
+
+  ALL_TARGET_KEYS.forEach(k => {
+    if (isCustom(k)) {
+      if (Math.round(calc[k]) !== Math.round(state.targets[k])) {
+        conflicts.push({ k, from: state.targets[k], to: Math.round(calc[k]) });
+      }
+      return;
+    }
+    state.targets[k] = Math.round(calc[k]);
+  });
+
+  saveTargets();
+  renderSettings();
+  renderSummary();
+  renderWater();
+
+  if (conflicts.length) openRecalcDiff(conflicts);
+  else toast(`Targets calculated — ${state.targets.kcal.toLocaleString()} kcal, ${state.targets.p} g protein`);
+}
+
+let recalcPending = [];
+
+function openRecalcDiff(conflicts) {
+  recalcPending = conflicts;
+  $('#recalcIntro').textContent = conflicts.length === 1
+    ? 'One target you set by hand differs from the freshly calculated value. Tick it to take the new number, or keep yours.'
+    : `${conflicts.length} targets you set by hand differ from the freshly calculated values. Tick the ones to update.`;
+
+  const list = $('#recalcList');
+  list.innerHTML = '';
+  conflicts.forEach(c => {
+    const row = document.createElement('label');
+    row.className = 'diffrow';
+    row.innerHTML = `
+      <input type="checkbox" data-k="${c.k}">
+      <span class="diffname">${TARGET_LABELS[c.k]}</span>
+      <span class="diffval">${r0(c.from).toLocaleString()} → <b>${r0(c.to).toLocaleString()}</b> ${TARGET_UNITS[c.k]}</span>`;
+    list.appendChild(row);
+  });
+  showSheet('#recalcSheet');
+}
+
+function commitRecalcDiff() {
+  let n = 0;
+  $$('#recalcList input[type="checkbox"]').forEach(cb => {
+    if (!cb.checked) return;
+    const c = recalcPending.find(x => x.k === cb.dataset.k);
+    if (!c) return;
+    state.targets[c.k] = c.to;
+    /* Taking the calculated number means it is no longer a custom value. */
+    state.customTargets = state.customTargets.filter(x => x !== c.k);
+    n++;
+  });
+  saveTargets();
+  saveCustomTargets();
+  closeSheets();
+  renderSettings();
+  renderSummary();
+  renderWater();
+  toast(n ? `${n} target${n > 1 ? 's' : ''} updated` : 'Kept your own targets');
+}
+
+/* --------------------------- city and free text --------------------------- */
+
+async function resolveCity(name) {
+  try {
+    const hits = await geocodeCity(name);
+    if (!hits.length) { toast(`No place called “${name}” found`); return; }
+    if (hits.length === 1) { pickCity(hits[0]); return; }
+    showCityChoices(hits);
+  } catch (err) {
+    console.warn('[Macros] geocoding failed:', err.message);
+    toast('Could not look that city up — the water target will use a warm-climate default');
+  }
+}
+
+function showCityChoices(hits) {
+  const box = $('#pfCityResults');
+  box.innerHTML = '';
+  /* Several places share a name — "Riyadh" matches Saudi Arabia, Iraq and
+     Sudan. Until one is picked there are no coordinates, so say so rather
+     than quietly leaving the water target on its fallback. */
+  cityPending = true;
+  $('#pfWeather').textContent = `${hits.length} places match — tap the right one and the water target will follow its forecast.`;
+  hits.forEach(h => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = h.label;
+    b.onclick = async () => { pickCity(h); await refreshWeather({ force: true }); applyCalculatedTargets(); renderProfile(); };
+    box.appendChild(b);
+  });
+  box.classList.remove('hidden');
+}
+
+let cityPending = false;
+
+function pickCity(h) {
+  cityPending = false;
+  state.profile.lat = h.lat;
+  state.profile.lon = h.lon;
+  state.profile.cityLabel = h.label;
+  state.profile.city = h.label;
+  saveProfile();
+  $('#pfCityResults').classList.add('hidden');
+}
+
+/* The free-text box goes to the model, which maps it onto the same focus
+   keys the chips use. Constrained to that list on purpose: it can shift
+   emphasis, it cannot invent a nutrient target. With no key, or if the call
+   fails, the text is kept and matched against the same keywords locally. */
+const FOCUS_SYSTEM = [
+  'You map a short free-text health goal onto a fixed list of nutrition focus areas.',
+  'Valid areas: ' + FOCUS_AREAS.map(f => f.k).join(', ') + '.',
+  'Reply with JSON only: {"areas":["key",...],"note":"one short sentence, max 20 words"}',
+  'Pick at most 3 areas. If nothing fits, return an empty array.',
+].join('\n');
+
+async function interpretFocusText() {
+  const text = state.profile.focusText;
+  if (!text) { state.profile.aiFocus = null; saveProfile(); return; }
+
+  if (!features.ai || !(state.ai.key || '').trim()) {
+    state.profile.aiFocus = localFocusGuess(text);
+    saveProfile();
+    return;
+  }
+  try {
+    const raw = await aiChat(FOCUS_SYSTEM, text, { json: true, maxTokens: 300, temperature: 0.1 });
+    const obj = extractJson(raw) || {};
+    const valid = FOCUS_AREAS.map(f => f.k);
+    const areas = (Array.isArray(obj.areas) ? obj.areas : []).filter(a => valid.includes(a)).slice(0, 3);
+    state.profile.aiFocus = { areas, note: String(obj.note || '').slice(0, 120), by: 'ai' };
+  } catch (err) {
+    console.warn('[Macros] focus interpretation failed:', err.code, err.message);
+    state.profile.aiFocus = localFocusGuess(text);
+  }
+  saveProfile();
+}
+
+/* No key, no network, no problem — a keyword pass covers the obvious cases. */
+const FOCUS_KEYWORDS = {
+  hair: /hair|nail|ferritin|shed|bald/i,
+  skin: /skin|acne|complexion|collagen|dry skin/i,
+  muscle: /muscle|strength|lift|gym|bicep|bulk up/i,
+  bulk: /weight gain|gain weight|skinny|underweight/i,
+  belly: /belly|tummy|waist|stomach fat|love handle/i,
+  fatloss: /fat loss|lose fat|slim|cut|lean out/i,
+  healthy: /health|energy|tired|fatigue|immun|general/i,
+};
+
+function localFocusGuess(text) {
+  const areas = Object.keys(FOCUS_KEYWORDS).filter(k => FOCUS_KEYWORDS[k].test(text)).slice(0, 3);
+  return {
+    areas,
+    note: areas.length
+      ? 'Matched to ' + areas.map(k => (FOCUS_AREAS.find(f => f.k === k) || {}).label).join(', ') + ' without the model.'
+      : 'Nothing obvious matched — add an OpenRouter key and it will be read properly.',
+    by: 'local',
+  };
 }
 
 /* =====================================================================
@@ -2514,6 +3408,8 @@ function renderSettings() {
   $('#tF').value = state.targets.f;
   $('#tW').value = state.targets.water;
   MICROS.forEach(m => { $(MICRO_TARGET_IDS[m.k]).value = state.targets[m.k]; });
+  renderCustomMarks();
+  renderProfile();
   $('#aiKey').value = state.ai.key || '';
   $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
   renderAiStatus();
@@ -2540,7 +3436,9 @@ async function testAiKey() {
   try {
     const est = await aiRequest('plain boiled white rice', { timeout: 30000 });
     renderAiStatus(`Working. Test estimate for boiled rice: ${r0(est.values.kcal)} kcal/100 g `
-      + `(a sane answer is roughly 120–140). Model: ${est.model}`);
+      + `(a sane answer is roughly 120–140). Model: ${est.model}`
+      + (aiChat.retriedAfterTimeout ? ' — the first attempt timed out and the retry succeeded, so expect the odd slow round.' : '')
+      + (aiChat.lastDroppedFormat ? ' (That model would not take a strict JSON format, so plain prompting was used.)' : ''));
   } catch (err) {
     renderAiStatus(aiErrorText(err));
   } finally {
@@ -2563,14 +3461,31 @@ function persistTargets() {
      the number, which is what the app did before targets existed. */
   MICROS.forEach(m => { micro[m.k] = Math.max(0, +$(MICRO_TARGET_IDS[m.k]).value || 0); });
 
-  state.targets = Object.assign(micro, {
+  const next = Object.assign(micro, {
     kcal:  Math.max(0, +$('#tKcal').value || 0),
     p:     Math.max(0, +$('#tP').value || 0),
     c:     Math.max(0, +$('#tC').value || 0),
     f:     Math.max(0, +$('#tF').value || 0),
     water: Math.max(0, +$('#tW').value || 0),
   });
+
+  /* Anything typed that differs from what the engine would produce is a
+     deliberate override, and recalculation asks before touching it. With no
+     profile there is nothing to compare against, so nothing is marked. */
+  if (hasProfile()) {
+    const calc = computeTargets(state.profile);
+    ALL_TARGET_KEYS.forEach(k => {
+      const differs = Math.round(next[k]) !== Math.round(calc[k]);
+      const already = isCustom(k);
+      if (differs && !already) state.customTargets.push(k);
+      if (!differs && already) state.customTargets = state.customTargets.filter(x => x !== k);
+    });
+    saveCustomTargets();
+  }
+
+  state.targets = next;
   saveTargets();
+  renderSettings();
   renderSummary();
   renderWater();
   toast('Targets saved');
@@ -2580,10 +3495,11 @@ function exportBackup() {
   /* The API key is deliberately left out — a backup file often gets emailed
      or synced, and a leaked key is someone else spending your credit. */
   const payload = {
-    app: 'macros', version: 4, exported: new Date().toISOString(),
+    app: 'macros', version: 5, exported: new Date().toISOString(),
     targets: state.targets, foods: state.custom, entries: state.entries,
     water: state.water, names: state.names,
     burn: state.burn, advice: state.advice, features,
+    profile: state.profile, customTargets: state.customTargets,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -2621,7 +3537,14 @@ function importBackup(file) {
       /* Model preference travels; the key never does, so keep the local one. */
       if (d.ai && d.ai.model) state.ai.model = d.ai.model;
 
-      saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice(); saveTargets(); saveAi();
+      /* Body stats and which targets were hand-set travel together — importing
+         the targets without the overrides would let the next recalculation
+         quietly undo edits the backup was meant to preserve. */
+      if (d.profile) state.profile = Object.assign({}, DEFAULT_PROFILE, d.profile);
+      if (Array.isArray(d.customTargets)) state.customTargets = d.customTargets.slice();
+
+      saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice();
+      saveTargets(); saveAi(); saveProfile(); saveCustomTargets();
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {
@@ -2962,8 +3885,47 @@ function init() {
 
   /* settings */
   ['#tKcal', '#tP', '#tC', '#tF'].forEach(s => $(s).oninput = checkTargetMath);
+
+  /* profile */
+  ['#pfH', '#pfW', '#pfAge', '#pfGoalKg', '#pfGoalWeeks'].forEach(sel =>
+    $(sel).oninput = () => { readProfileForm(); renderGoalNote(); renderProfileSummary(); });
+  ['#pfSex', '#pfActivity'].forEach(sel =>
+    $(sel).onchange = () => { readProfileForm(); renderProfileSummary(); });
+  $('#pfGoal').onchange = () => {
+    readProfileForm();
+    $('#pfGoalRow').classList.toggle('hidden', state.profile.goal === 'maintain');
+    renderGoalNote();
+    renderProfileSummary();
+  };
+  $('#pfSave').onclick = () => saveProfileAndCalc();
+  $('#pfRecalc').onclick = () => {
+    if (!hasProfile()) { toast('Fill in height, weight and age first'); return; }
+    readProfileForm();
+    saveProfile();
+    saveProfileAndCalc({ recalcOnly: true });
+  };
+  $('#pfCity').onchange = () => {
+    const v = $('#pfCity').value.trim();
+    state.profile.city = v;
+    if (v && v !== state.profile.cityLabel) resolveCity(v).then(() => refreshWeather({ force: true }))
+      .then(() => { $('#pfWeather').textContent = weatherNote(); });
+  };
+  $('#recalcApply').onclick = commitRecalcDiff;
+  $('#recalcKeep').onclick = () => { closeSheets(); toast('Kept your own targets'); };
+
   $('#saveTargets').onclick = persistTargets;
-  $('#resetTargets').onclick = () => { state.targets = Object.assign({}, DEFAULT_TARGETS); saveTargets(); renderSettings(); renderSummary(); renderWater(); toast('Targets reset'); };
+  $('#resetTargets').onclick = () => {
+    /* With a profile, "reset" means back to calculated rather than back to
+       the generic defaults — those are not this person's numbers. */
+    state.targets = hasProfile()
+      ? (() => { const c = computeTargets(state.profile); const o = {};
+                 ALL_TARGET_KEYS.forEach(k => { o[k] = Math.round(c[k]); }); return o; })()
+      : Object.assign({}, DEFAULT_TARGETS);
+    state.customTargets = [];
+    saveTargets(); saveCustomTargets();
+    renderSettings(); renderSummary(); renderWater();
+    toast(hasProfile() ? 'Back to your calculated targets' : 'Targets reset to the defaults');
+  };
   $('#aiSaveKey').onclick = () => {
     state.ai.key = $('#aiKey').value.trim();
     state.ai.model = $('#aiModel').value.trim() || AI_DEFAULT_MODEL;
@@ -3011,6 +3973,10 @@ function init() {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !isLocal) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  /* Best-effort, and never blocks anything: the water target falls back to a
+     warm-climate figure when this fails or the device is offline. */
+  refreshWeather().then(w => { if (w) { renderWater(); renderSettings(); } });
 
   /* Say it out loud as well as in Settings — a model changing under you is
      not something to find out from a failed suggestion. */

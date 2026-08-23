@@ -200,6 +200,7 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 .microgrid b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
 .microgrid b.none { color: var(--faint); font-weight: 500; }
 .microgrid span { font-size: 10.5px; color: var(--dim); display: block; margin-top: 2px; }
+.microgrid span u { text-decoration: none; color: var(--faint); font-size: 9px; }
 .microgrid em {
   display: block; margin-top: 4px; font-style: normal;
   font-size: 9.5px; color: var(--faint); font-variant-numeric: tabular-nums;
@@ -219,6 +220,37 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 .microgrid .micro-under { background: color-mix(in srgb, var(--short) 15%, var(--card-2)); }
 .microgrid .micro-under b, .microgrid .micro-under i { color: var(--short); }
 .micronote { font-size: 12px; color: var(--faint); margin: 10px 2px 0; line-height: 1.45; }
+
+/* --------------------------- profile & targets --------------------------- */
+.row2, .row3 { display: grid; gap: 10px; }
+.row2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.row3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+.focuschips { margin: 2px 0 12px; }
+.focuschips .chip.on {
+  background: color-mix(in srgb, var(--accent) 20%, var(--card-2));
+  border-color: var(--accent); color: var(--accent); font-weight: 650;
+}
+
+.field.customised input { border-color: color-mix(in srgb, var(--short) 55%, var(--line)); }
+.customtag {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px; border: 0;
+  background: color-mix(in srgb, var(--short) 20%, transparent);
+  color: var(--short); font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; cursor: pointer;
+}
+.customtag:active { filter: brightness(.9); }
+
+.difflist { display: grid; gap: 8px; margin: 4px 0 14px; }
+.diffrow {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center; gap: 10px;
+  background: var(--card-2); border-radius: 10px; padding: 11px 12px;
+}
+.diffrow input { width: 20px; height: 20px; accent-color: var(--accent); }
+.diffname { font-weight: 600; font-size: 14px; }
+.diffval { font-size: 13px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diffval b { color: var(--text); }
 
 /* ------------------------------ water ------------------------------ */
 .water .waterquick { margin-top: 14px; }
@@ -511,7 +543,28 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--bg); color: var(--text); -webkit-appearance: none;
 }
 .field input[type=text] { width: 60%; text-align: left; }
-.field input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Selects match the inputs; the arrow is drawn in because -webkit-appearance
+   is off and iOS otherwise renders nothing at all. */
+.field select {
+  width: 62%; font-size: 16px; padding: 10px 30px 10px 12px;
+  border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text);
+  -webkit-appearance: none; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 16px) 51%, calc(100% - 11px) 51%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Stacked rows put the label above the box rather than beside it — and a
+   long option like "On my feet most of the shift" needs the full width. */
+.row2 .field, .row3 .field, .field.stack { flex-direction: column; align-items: stretch; gap: 5px; }
+.row2 .field input, .row3 .field input,
+.field.stack input, .field.stack input[type=text], .field.stack select { width: 100%; text-align: left; }
+.field.stack > span { flex-direction: row; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 
 /* ------------------------------ tab bar ------------------------------ */
 .tabbar {

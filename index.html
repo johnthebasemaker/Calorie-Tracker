@@ -247,6 +247,52 @@
       </label>
     </div>
 
+    <h2 class="sect">My profile <small>optional</small></h2>
+    <div class="card form">
+      <p class="hint">Fill this in and your targets are calculated from your own body, activity and goal
+        instead of generic adult values. Skip it and the app works exactly as it does now.</p>
+
+      <div class="row3">
+        <label class="field"><span>Height (cm)</span><input type="number" inputmode="numeric" id="pfH"></label>
+        <label class="field"><span>Weight (kg)</span><input type="number" inputmode="decimal" step="0.1" id="pfW"></label>
+        <label class="field"><span>Age</span><input type="number" inputmode="numeric" id="pfAge"></label>
+      </div>
+      <p class="hint">Update your weight weekly and tap Recalculate — that is what keeps the numbers honest.</p>
+
+      <label class="field stack"><span>Biological sex <small>changes the BMR formula</small></span>
+        <select id="pfSex"><option value="male">Male</option><option value="female">Female</option></select></label>
+
+      <label class="field stack"><span>Activity level</span><select id="pfActivity"></select></label>
+      <p class="hint" id="pfBurnNote"></p>
+
+      <label class="field stack"><span>Goal</span>
+        <select id="pfGoal">
+          <option value="maintain">Maintain my weight</option>
+          <option value="gain">Gain weight</option>
+          <option value="lose">Lose weight</option>
+        </select></label>
+      <div class="row2 hidden" id="pfGoalRow">
+        <label class="field"><span>How many kg</span><input type="number" inputmode="decimal" step="0.5" id="pfGoalKg"></label>
+        <label class="field"><span>Over how many weeks</span><input type="number" inputmode="numeric" id="pfGoalWeeks"></label>
+      </div>
+      <p class="hint" id="pfGoalNote"></p>
+
+      <label class="field"><span>Focus areas <small>tap any that apply</small></span></label>
+      <div class="chips focuschips" id="pfFocus"></div>
+      <label class="field stack"><span>Anything else</span>
+        <input type="text" id="pfFocusText" placeholder="e.g. brittle nails, low energy on night shifts"></label>
+      <p class="hint" id="pfFocusNote"></p>
+
+      <label class="field stack"><span>City <small>for the water target</small></span>
+        <input type="text" id="pfCity" placeholder="e.g. Riyadh" autocomplete="off"></label>
+      <div class="chips hidden" id="pfCityResults"></div>
+      <p class="hint" id="pfWeather"></p>
+
+      <button class="wide" id="pfSave">Save profile &amp; calculate targets</button>
+      <button class="wide ghost" id="pfRecalc">Recalculate from current weight</button>
+      <p class="hint" id="pfSummary"></p>
+    </div>
+
     <h2 class="sect">Daily targets</h2>
     <div class="card form">
       <label class="field"><span>Calories (kcal)</span><input type="number" inputmode="numeric" id="tKcal"></label>
@@ -255,13 +301,13 @@
       <label class="field"><span>Fat (g)</span><input type="number" inputmode="numeric" id="tF"></label>
       <label class="field"><span>Water (ml)</span><input type="number" inputmode="numeric" id="tW"></label>
       <p class="hint" id="macroCheck"></p>
+      <p class="hint" id="customNote"></p>
 
       <button class="expand" id="toggleNutTargets" aria-expanded="false" aria-controls="nutTargets">
         <span>Other nutrients</span><i class="caret" aria-hidden="true">▾</i>
       </button>
       <div class="hidden" id="nutTargets">
-        <p class="hint">General reference values for a healthy adult male, not personal ones. Fibre,
-          calcium and iron are minimums to reach; sugar, sodium and cholesterol are limits to stay under.</p>
+        <p class="hint" id="nutTargetsIntro"></p>
         <label class="field"><span>Fibre (g, min)</span><input type="number" inputmode="numeric" id="tFb"></label>
         <label class="field"><span>Sugar (g, max)</span><input type="number" inputmode="numeric" id="tSg"></label>
         <label class="field"><span>Sodium (mg, max)</span><input type="number" inputmode="numeric" id="tNa"></label>
@@ -506,6 +552,18 @@
     <button class="wide" id="aiGo">Estimate</button>
     <button class="wide ghost" id="aiManualInstead">Enter it manually instead</button>
     <button class="wide ghost" id="aiCancel">Cancel</button>
+  </div>
+</div>
+
+<!-- ===================== RECALCULATION DIFF ===================== -->
+<div class="sheet hidden" id="recalcSheet" role="dialog" aria-modal="true">
+  <div class="grab"></div>
+  <h3>Targets you set yourself</h3>
+  <p class="hint" id="recalcIntro"></p>
+  <div class="difflist" id="recalcList"></div>
+  <div class="sheetbtns">
+    <button class="wide" id="recalcApply">Apply the ticked ones</button>
+    <button class="wide ghost" id="recalcKeep">Keep all of mine</button>
   </div>
 </div>
 
