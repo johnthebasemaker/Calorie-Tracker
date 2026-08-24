@@ -380,6 +380,49 @@ food while on a past date logs it to that date — useful after a long shift.
 
 ---
 
+## The bell
+
+Reminders used to be scattered — a burn banner on Today, a workout banner on
+Workout, a skippable "finish yesterday" prompt — so knowing what was outstanding
+meant visiting tabs to check. The bell in the header aggregates all of it and is
+reachable from every tab.
+
+It was a bell rather than a seventh tab because six tabs already sit at 62 px on
+a 375 px screen; a seventh drops them to 53 px and "Settings" starts to clip.
+
+**The badge counts only things with an action**: burn check-ins, each unfinished
+day, the workout reminder, a region that failed to download, and the one-time
+profile nudge. Nutrient warnings and the day's AI suggestion are listed but not
+counted — they are worth knowing, not tasks to clear, and a badge that never
+reaches zero stops meaning anything.
+
+The list is grouped: **Needs you**, then **Today**, then **Setup**. Tapping any
+row goes to where you would act on it — a check-in row opens the check-in sheet,
+an unfinished day opens that day's sheet with the date already set, a nutrient
+warning opens Today with the breakdown expanded.
+
+**One producer, three consumers.** `pendingItems()` computes the list; the Today
+banner, the Workout banner and the bell all render from it. They differ in how
+much they show, never in what is true. Nutrient warnings come from the same
+`microVerdicts()` the Full breakdown grid draws, so the two cannot drift apart.
+
+**Dismissal is deliberately not baked into the producer.** Swiping a banner away
+silences it for that session; the bell still lists the thing, because "I
+dismissed it this morning" is not the same as "it is done". The hub is where you
+find what has quietly piled up — and unlike the banner, which shows the oldest
+unfinished day, it lists every one.
+
+**Nothing here touches the network.** The AI suggestion shows its cached text or
+is simply absent; there is no call to make.
+
+One judgement call worth flagging: the workout reminder does **not** fire on a
+fresh install. The 6 am default is a starting point, not a commitment, and
+opening a new app to "workout not done" plus a badge for a schedule nobody chose
+is noise. It starts once you tick an exercise or set your own time, and the
+Workout tab says so while it waits.
+
+---
+
 ## My profile
 
 Optional. Skip it and everything above still works on generic adult values.

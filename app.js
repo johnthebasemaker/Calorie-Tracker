@@ -11,6 +11,7 @@ const KEY = {
   wx:    'ct.weather.v1',   // last good forecast, so a flight or a dead link still works
   work:  'ct.workout.v1',   // focus, custom times, and which exercises got done when
   regs:  'ct.regions.v1',   // which region libraries are switched on
+  seen:  'ct.seen.v1',      // one-time nudges that have been dismissed for good
   foods: 'ct.foods.v1',
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
@@ -635,8 +636,16 @@ function workoutWeekCount() {
    whatever the clock says next time the app is opened. */
 let workoutBannerDismissed = false;
 
+/* The 6am default time is a sensible starting point, not a commitment. A
+   brand-new install should not open on "workout not done" and a badge of 1
+   for a schedule nobody chose — so the reminder waits until there is some
+   sign the feature is wanted: a workout ticked, or the times edited. */
+function workoutEngaged() {
+  return Object.keys(state.workout.log || {}).length > 0 || seenKey('workoutTimes');
+}
+
 function workoutDue() {
-  if (workoutBannerDismissed) return null;
+  if (!workoutEngaged()) return null;
   const times = (state.workout.times || []).filter(t => typeof t.min === 'number');
   if (!times.length) return null;
   if (workoutFor(todayStr())) return null;          // something already ticked today
@@ -759,6 +768,7 @@ const state = {
   advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
   workout: { focus: null, times: [], log: {} },
   regions: { ...DEFAULT_REGIONS },
+  seen:    {},
   date:    todayStr(),
   weekStart: mondayOf(todayStr()),
 };
@@ -788,6 +798,7 @@ function load() {
      the old history straight back. Same trap for the times array. */
   const savedWork = readJSON(KEY.work, {}) || {};
   state.regions = Object.assign({}, DEFAULT_REGIONS, readJSON(KEY.regs, {}) || {});
+  state.seen    = readJSON(KEY.seen, {}) || {};
 
   state.workout = {
     focus: savedWork.focus || null,
@@ -1230,6 +1241,7 @@ function renderAll() {
   renderQuick();
   renderEntries();
   renderFinalBanner();
+  renderBell();
   if (currentView === 'week') renderWeek();
 }
 
@@ -1279,30 +1291,27 @@ function renderSummary() {
   renderTotalsMicros();
 }
 
-function renderTotalsMicros() {
-  const totals = microTotalsFor(state.date);
-  const grid = $('#totalsMicroGrid');
-  grid.innerHTML = '';
-  let partial = false, flagged = [];
-
-  MICROS.forEach(m => {
+/* One verdict per nutrient for a day. Extracted so the Full breakdown grid
+   and the alerts hub read the same numbers — recomputing the rule in two
+   places is how the two ends up disagreeing with the other. */
+function microVerdicts(d) {
+  const totals = microTotalsFor(d);
+  return MICROS.map(m => {
     const s = totals[m.k];
     const weekly = m.span === 'week';
     /* A weekly nutrient shows its 7-day average, because that is the figure
        being judged — showing today's number next to a weekly verdict would
        invite exactly the wrong arithmetic. */
-    const wk = weekly ? microWeekAvg(m.k, state.date) : null;
+    const wk = weekly ? microWeekAvg(m.k, d) : null;
     const value = weekly ? wk.avg : s.sum;
     const known = weekly ? wk.reported > 0 : s.have > 0;
 
     /* Any nutrient not reported by every food is a gap — including one no
-       food reported at all, which the old check missed because it only
+       food reported at all, which an earlier check missed because it only
        looked at nutrients that had some data. That left the card showing
        "—" for calcium while the note claimed all six were reported. */
     const isPartial = !weekly && s.total > 0 && s.have < s.total;
-    if (isPartial) partial = true;
 
-    const target = state.targets[m.k];
     /* No state without data. An unreported sodium is not a low sodium, and
        colouring it green would be a lie the rest of this card avoids.
 
@@ -1313,6 +1322,24 @@ function renderTotalsMicros() {
     let st = known ? microState(m, value) : { cls: '', label: '' };
     if (known && isPartial && m.dir === 'max' && st.cls !== 'over') st = { cls: '', label: '' };
     if (known && isPartial && m.dir === 'min' && st.cls !== 'ok') st = { cls: '', label: '' };
+
+    return { m, s, wk, weekly, value, known, isPartial, st, target: state.targets[m.k] };
+  });
+}
+
+/* Just the ones worth telling someone about. */
+const microFlags = d => microVerdicts(d)
+  .filter(v => v.known && (v.st.cls === 'over' || v.st.cls === 'under'));
+
+function renderTotalsMicros() {
+  const grid = $('#totalsMicroGrid');
+  grid.innerHTML = '';
+  let partial = false, flagged = [];
+  const totals = microTotalsFor(state.date);
+
+  microVerdicts(state.date).forEach(v => {
+    const { m, s, weekly, value, known, isPartial, st, target } = v;
+    if (isPartial) partial = true;
     if (known && (st.cls === 'over' || st.cls === 'under')) flagged.push(m);
 
     const cell = document.createElement('div');
@@ -1477,8 +1504,10 @@ function renderBurn() {
 
 function renderBanner() {
   const banner = $('#cpBanner');
-  const due = features.burn && state.date === todayStr() && !bannerDismissed
-    ? checkinDue() : null;
+  /* Same list the bell reads. The banner adds two conditions of its own —
+     it only shows on today's screen, and it honours this session's dismiss. */
+  const item = state.date === todayStr() ? pendingByKey('checkin') : null;
+  const due = item && !item.dismissed ? checkinDue() : null;
 
   if (!due) { banner.classList.add('hidden'); return; }
 
@@ -1522,7 +1551,11 @@ function commitBannerCheckin() {
 
 function renderFinalBanner() {
   const banner = $('#finalBanner');
-  const pending = features.burn ? daysNeedingFinal().filter(d => !finalDismissed.has(d)) : [];
+  /* Same producer; the banner shows the oldest outstanding day, the hub
+     lists them all. */
+  const pending = pendingItems()
+    .filter(i => i.key.startsWith('final:') && !i.dismissed)
+    .map(i => i.key.slice(6));
 
   if (!pending.length || state.date !== todayStr()) { banner.classList.add('hidden'); return; }
 
@@ -3864,6 +3897,8 @@ function renderWorkout() {
     chips.appendChild(b);
   });
 
+  $('#woNudgeNote') && ($('#woNudgeNote').textContent = workoutEngaged() ? ''
+    : 'Reminders start once you tick your first exercise or set your own time in Settings.');
   $('#woFocusNote').textContent = state.workout.focus
     ? 'Your choice. Tap another any time.'
     : hasProfile()
@@ -3901,6 +3936,8 @@ function renderWorkout() {
         toggleExercise(d, e.id);
         renderWorkout();
         renderWorkoutBanner();
+        renderBell();
+  renderBell();
 
   /* Regions already switched on come from localStorage, so this resolves
      immediately in the normal case and never blocks the first render. */
@@ -3927,7 +3964,8 @@ function renderWorkout() {
 
 function renderWorkoutBanner() {
   const banner = $('#woBanner');
-  const due = workoutDue();
+  const item = pendingByKey('workout');
+  const due = item && !item.dismissed ? workoutDue() : null;
   if (!due) { banner.classList.add('hidden'); return; }
   $('#woBannerTitle').textContent = `It’s past ${minToPretty(due.min)} — nothing ticked off yet today`;
   $('#woBannerHint').textContent = `Today’s session is about ${sessionFor(activeFocus()).minutes} minutes. `
@@ -4049,8 +4087,10 @@ function renderWorkoutTimes() {
       t.min = v;
       state.workout.times.sort((a, b) => a.min - b.min);
       saveWorkout();
+      markSeen('workoutTimes');
       renderWorkoutTimes();
       renderWorkoutBanner();
+      renderBell();
     };
     const del = document.createElement('button');
     del.className = 'ghost small';
@@ -4058,13 +4098,215 @@ function renderWorkoutTimes() {
     del.onclick = () => {
       state.workout.times = state.workout.times.filter(x => x.id !== t.id);
       saveWorkout();
+      markSeen('workoutTimes');
       renderWorkoutTimes();
       renderWorkoutBanner();
+      renderBell();
     };
     row.appendChild(input);
     row.appendChild(del);
     list.appendChild(row);
   });
+}
+
+/* =====================================================================
+   PENDING ITEMS  —  one producer, three consumers
+
+   The Today banner, the Workout banner and the alerts hub all render from
+   this list. They differ in how much they show, never in what is true.
+
+   Dismissal is deliberately not baked in here. Dismissing a banner silences
+   it for the session; the hub still lists the thing, because "I swiped it
+   away this morning" is not the same as "it is done". Each item carries its
+   own `dismissed` flag and the banners are the ones that honour it.
+
+   group: 'act'   — something to do; these are what the badge counts
+          'today' — worth knowing, nothing to clear
+          'setup' — one-time, dismissible for good
+   ===================================================================== */
+
+const seenKey = k => !!(state.seen && state.seen[k]);
+function markSeen(k) { state.seen[k] = true; writeJSON(KEY.seen, state.seen); }
+
+function pendingItems() {
+  const items = [];
+  const d = todayStr();
+
+  /* --- burn check-ins --- */
+  if (features.burn) {
+    const due = checkinDue();
+    if (due) {
+      items.push({
+        key: 'checkin', group: 'act', dismissed: bannerDismissed,
+        title: due.count > 1
+          ? `Log your burned total — ${due.count} reminders have passed`
+          : `Log burned calories — it’s past ${due.since.label}`,
+        sub: 'Enter the cumulative total your fitness app shows right now.',
+        go: () => { closeSheets(); showView('today'); openCheckin(d, null); },
+      });
+    }
+
+    /* Every unfinished day, not just the most recent — the whole point of
+       looking here is to find what has been quietly piling up. */
+    daysNeedingFinal().forEach(day => {
+      const last = readingsFor(day).slice(-1)[0];
+      items.push({
+        key: 'final:' + day, group: 'act', dismissed: finalDismissed.has(day),
+        /* "Finish yesterday" reads better lowercase; "Finish fri, aug 21"
+           does not. Only the single-word relative labels get folded. */
+        title: 'Finish ' + (/^[A-Za-z]+$/.test(prettyDate(day))
+          ? prettyDate(day).toLowerCase() : prettyDate(day)),
+        sub: last
+          ? `Last reading ${r0(last.cum).toLocaleString()} kcal at ${minToPretty(last.min)}. `
+            + 'The rest of that evening is still blank.'
+          : 'No final total recorded.',
+        go: () => { closeSheets(); showView('today'); finalPending = day; openCheckin(day, null); },
+      });
+    });
+  }
+
+  /* --- workout --- */
+  const wd = workoutDue();
+  if (wd) {
+    items.push({
+      key: 'workout', group: 'act', dismissed: workoutBannerDismissed,
+      title: `Workout not done — it’s past ${minToPretty(wd.min)}`,
+      sub: `Today’s session is about ${sessionFor(activeFocus()).minutes} minutes.`,
+      go: () => { closeSheets(); showView('workout'); },
+    });
+  }
+
+  /* --- a region that could not be downloaded --- */
+  if (regionError) {
+    items.push({
+      key: 'region', group: 'act', dismissed: false,
+      title: 'A food region could not be downloaded',
+      sub: regionError,
+      go: () => { closeSheets(); showView('settings');
+                  setTimeout(() => $('#regionList').scrollIntoView({ block: 'center' }), 60); },
+    });
+  }
+
+  /* --- profile, once --- */
+  if (!hasProfile() && !seenKey('profileNudge')) {
+    items.push({
+      key: 'profile', group: 'setup', dismissed: false, dismissable: true,
+      title: 'Your targets are generic',
+      sub: 'Fill in My Profile and they are calculated from your body, activity and goal '
+         + 'instead of average adult values.',
+      go: () => { closeSheets(); showView('settings');
+                  setTimeout(() => $('#pfH').scrollIntoView({ block: 'center' }), 60); },
+    });
+  }
+
+  /* --- today's nutrient flags, from the same verdicts the grid draws --- */
+  microFlags(d).forEach(v => {
+    items.push({
+      key: 'nut:' + v.m.k, group: 'today', dismissed: false,
+      title: v.m.dir === 'max'
+        ? `Over on ${v.m.label.toLowerCase()}`
+        : `Low on ${v.m.label.toLowerCase()}`,
+      sub: `${microFmt(v.value, v.m)} ${v.m.unit}${v.weekly ? ', 7-day average' : ''} `
+         + `against ${v.m.dir === 'max' ? 'a limit of' : 'a target of'} `
+         + `${microFmt(v.target, v.m)} ${v.m.unit}.`,
+      go: () => { closeSheets(); showView('today');
+                  totalsOpen = true; setExpanded($('#toggleTotals'), $('#totalsMicros'), true);
+                  setTimeout(() => $('#totalsMicroGrid').scrollIntoView({ block: 'center' }), 60); },
+    });
+  });
+
+  /* --- today's suggestion, cached; nothing here touches the network --- */
+  if (features.ai) {
+    const slot = currentAdviceSlot(d);
+    const cached = slot != null ? state.advice[adviceKey(d, slot)] : null;
+    if (cached && cached.text) {
+      items.push({
+        key: 'advice', group: 'today', dismissed: false, sparkle: true,
+        title: cached.text,
+        sub: `Suggested after your ${minToPretty(slot)} reading.`,
+        go: () => { closeSheets(); showView('today');
+                    setTimeout(() => $('#adviceBox').scrollIntoView({ block: 'center' }), 60); },
+      });
+    }
+  }
+
+  return items;
+}
+
+const pendingActions = () => pendingItems().filter(i => i.group === 'act');
+const pendingCount = () => pendingActions().length;
+const pendingByKey = k => pendingItems().find(i => i.key === k);
+
+/* ------------------------------ the bell ------------------------------ */
+
+function renderBell() {
+  const badge = $('#bellCount');
+  if (!badge) return;
+  const n = pendingCount();
+  badge.textContent = n > 9 ? '9+' : String(n);
+  badge.classList.toggle('hidden', n === 0);
+  $('#bellBtn').setAttribute('aria-label',
+    n ? `${n} item${n === 1 ? '' : 's'} need attention` : 'Nothing needs attention');
+}
+
+const GROUP_LABELS = { act: 'Needs you', today: 'Today', setup: 'Setup' };
+
+function openAlerts() {
+  renderAlerts();
+  showSheet('#alertSheet');
+}
+
+function renderAlerts() {
+  const wrap = $('#alertList');
+  wrap.innerHTML = '';
+  const items = pendingItems();
+
+  if (!items.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Nothing needs attention. Everything is logged and up to date.';
+    wrap.appendChild(p);
+  }
+
+  ['act', 'today', 'setup'].forEach(g => {
+    const rows = items.filter(i => i.group === g);
+    if (!rows.length) return;
+
+    const h = document.createElement('h4');
+    h.className = 'alerthead';
+    h.textContent = GROUP_LABELS[g] + (g === 'act' ? ` · ${rows.length}` : '');
+    wrap.appendChild(h);
+
+    rows.forEach(i => {
+      const row = document.createElement('div');
+      row.className = 'alertrow' + (g === 'act' ? ' act' : '');
+
+      const btn = document.createElement('button');
+      btn.className = 'alertgo';
+      btn.innerHTML = `
+        <span class="dot${i.sparkle ? ' sparkle' : ''}" aria-hidden="true">${i.sparkle ? '✦' : ''}</span>
+        <span class="alerttext"><b>${escapeHtml(i.title)}</b><small>${escapeHtml(i.sub)}</small></span>`;
+      btn.onclick = i.go;
+      row.appendChild(btn);
+
+      if (i.dismissable) {
+        const x = document.createElement('button');
+        x.className = 'alertx';
+        x.setAttribute('aria-label', 'Dismiss');
+        x.textContent = '×';
+        x.onclick = () => { markSeen(i.key === 'profile' ? 'profileNudge' : i.key);
+                            renderAlerts(); renderBell(); };
+        row.appendChild(x);
+      }
+      wrap.appendChild(row);
+    });
+  });
+
+  /* The header shows whichever date is being browsed; this list is always
+     about today, and saying so is cheaper than the confusion is. */
+  $('#alertNote').textContent = state.date === todayStr()
+    ? 'Everything here is about today.'
+    : `You are looking at ${prettyDate(state.date)}, but these items are about today.`;
 }
 
 /* =====================================================================
@@ -4452,6 +4694,8 @@ function init() {
   /* Date nav: a calendar for any date, and one tap back to today. No
      step arrows — a stray tap on those was how entries landed on the
      wrong day. */
+  $('#bellBtn').onclick = openAlerts;
+  $('#alertClose').onclick = closeSheets;
   $('#openCal').onclick = openCalendar;
   $('.datewrap').onclick = openCalendar;
   $('#calPrev').onclick = () => shiftCalMonth(-1);
@@ -4493,6 +4737,7 @@ function init() {
     $('#bannerCum').value = '';
     $('#bannerErr').classList.add('hidden');
     renderBanner();
+    renderBell();
   };
   $('#finalSave').onclick = commitFinal;
   $('#finalCum').onkeydown = e => { if (e.key === 'Enter') commitFinal(); };
@@ -4521,7 +4766,7 @@ function init() {
     toast(features.ai ? 'AI features on' : 'AI features hidden — your key is kept');
   };
   /* workout */
-  $('#woDismiss').onclick = () => { workoutBannerDismissed = true; renderWorkoutBanner(); };
+  $('#woDismiss').onclick = () => { workoutBannerDismissed = true; renderWorkoutBanner(); renderBell(); };
   $('#woAddTime').onclick = () => {
     const mins = (state.workout.times || []).map(t => t.min);
     /* Offset a new one so two rows never sit on the same minute and look
@@ -4531,8 +4776,10 @@ function init() {
     state.workout.times.push({ id: uid(), min: m });
     state.workout.times.sort((a, b) => a.min - b.min);
     saveWorkout();
+    markSeen('workoutTimes');
     renderWorkoutTimes();
     renderWorkoutBanner();
+    renderBell();
   };
 
   $('#adviceAgain').onclick = () => {
