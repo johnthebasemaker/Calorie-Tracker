@@ -419,9 +419,16 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 .timerow input {
   border: 1px solid var(--line); border-radius: 9px; background: var(--card);
   color: var(--text); font-size: 16px; font-variant-numeric: tabular-nums;
-  padding: 7px 10px; -webkit-appearance: none; min-width: 108px; text-align: center;
+  padding: 7px 10px; -webkit-appearance: none; text-align: center;
+  /* A 12-hour locale renders "08:00 AM" plus a clock glyph inside the field.
+     A fixed 108px cropped the M off, and scrollWidth does not report it
+     because the clipping happens inside the control's shadow DOM — it only
+     shows up in a screenshot. Let the field take the room it needs. */
+  flex: 1 1 auto; min-width: 0; max-width: 190px;
 }
+.timerow > button { flex: 0 0 auto; }
 .timerow input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.timerow input:disabled { opacity: .55; }
 
 /* ------------------------------ chips ------------------------------ */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -775,16 +782,9 @@ input[type=number] { -moz-appearance: textfield; }
   font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 99px;
 }
 .chip.final { border-color: var(--accent); }
-.timerow {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin-top: 14px; font-size: 14.5px; color: var(--dim);
-}
-.timerow input {
-  flex: 0 0 132px; font-size: 16px; text-align: center; padding: 10px 12px;
-  border-radius: 10px; border: 1px solid var(--line);
-  background: var(--bg); color: var(--text); -webkit-appearance: none;
-}
-.timerow input:disabled { opacity: .55; }
+/* .timerow lives once, further up. A second copy grew here when the burn
+   sheet and the reminder lists were built in different phases, and its
+   flex: 0 0 132px quietly won — which is what cropped the AM/PM. */
 
 
 /* ------------------------------ workout ------------------------------ */
@@ -826,3 +826,6 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* An informational ceiling: says where you are, never sounds an alarm. */
 .microgrid .micro-info i { color: var(--dim); }
+
+/* A hint that is actually a problem — used when a typed goal could not be read. */
+.hint.warnnote { color: var(--short); }

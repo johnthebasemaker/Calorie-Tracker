@@ -12,6 +12,7 @@ const KEY = {
   work:  'ct.workout.v1',   // focus, custom times, and which exercises got done when
   regs:  'ct.regions.v1',   // which region libraries are switched on
   seen:  'ct.seen.v1',      // one-time nudges that have been dismissed for good
+  cps:   'ct.checkins.v1',  // your own burn check-in reminder times
   foods: 'ct.foods.v1',
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
@@ -31,21 +32,21 @@ let features = { ...DEFAULT_FEATURES };
    the CUMULATIVE burn Apple Health is showing; segments are derived by
    subtraction. Apple Health resets at midnight, so the 8am reading IS the
    midnight-to-8am segment with nothing to subtract. */
-const CHECKPOINTS = [
-  { k: 'c0800', min: 8 * 60,       label: '8:00 AM',   short: '8am' },
-  { k: 'c1200', min: 12 * 60,      label: '12:00 PM',  short: '12pm' },
-  { k: 'c1700', min: 17 * 60,      label: '5:00 PM',   short: '5pm' },
-  { k: 'c2230', min: 22 * 60 + 30, label: '10:30 PM',  short: '10:30pm' },
-];
+/* The times these fire at were hardcoded when check-ins were fixed slots.
+   They are yours to set now — as many or as few as suit the shift you are
+   actually working. These four are only what a fresh install starts with. */
+const DEFAULT_CHECKPOINTS = [8 * 60, 12 * 60, 17 * 60, 22 * 60 + 30];
 
-/* Names for the four standard windows. A merged window (skipped check-in)
-   falls through to a plain time range instead of a misleading name. */
-const SEG_NAMES = {
-  '0-480':     'Night → Morning',
-  '480-720':   'Morning → Midday',
-  '720-1020':  'Midday → Evening',
-  '1020-1350': 'Evening → Night',
-};
+/* Everything downstream reads this rather than a constant: the banner, the
+   alerts hub, and the "reminders you passed inside this window" labels on
+   the segment table. */
+function checkpoints() {
+  return (state.checkins || [])
+    .filter(t => typeof t.min === 'number')
+    .slice()
+    .sort((a, b) => a.min - b.min)
+    .map(t => ({ k: t.id, min: t.min, label: minToPretty(t.min), short: minToShort(t.min) }));
+}
 
 /* OpenRouter is OpenAI-compatible and returns access-control-allow-origin: *,
    so the browser can call it directly from the Pages origin with no proxy. */
@@ -211,6 +212,7 @@ const FOCUS_AREAS = [
 
 const DEFAULT_PROFILE = {
   h: null, w: null, age: null, sex: 'male',
+  focusRead: '',           // the text last sent to the model, so it is not re-sent
   activity: 'mod',
   goal: 'maintain',        // gain | lose | maintain
   goalKg: null, goalWeeks: null,
@@ -280,24 +282,53 @@ function goalPlan(p) {
 /* Merge the selected focus chips plus anything the model made of the free
    text. Multipliers compound; absolute values take the strongest single
    claim rather than stacking. */
+/* Chips and free text combine — both are things you asked for. Where they
+   set the same nutrient differently, the chip wins: you tapped it on purpose,
+   the text was read by a model. So the model's areas are applied first and
+   the chips are applied over the top. */
 function focusEffects(p) {
-  const keys = (p.focus || []).slice();
-  const ai = p.aiFocus && Array.isArray(p.aiFocus.areas) ? p.aiFocus.areas : [];
-  ai.forEach(k => { if (!keys.includes(k)) keys.push(k); });
+  const chips = (p.focus || []).slice();
+  const fromAi = (p.aiFocus && Array.isArray(p.aiFocus.areas) ? p.aiFocus.areas : [])
+    .filter(k => !chips.includes(k));
 
-  const eff = { protein: 1, kcal: 1, notes: [] };
-  keys.forEach(k => {
-    const f = FOCUS_AREAS.find(x => x.k === k);
-    if (!f) return;
-    eff.protein *= f.protein || 1;
-    eff.kcal *= f.kcal || 1;
-    ['fb', 'as', 'ns', 'na', 'ch', 'ca', 'fe'].forEach(m => {
-      if (f[m] == null) return;
-      const raise = m === 'fb' || m === 'ca' || m === 'fe';   // minimums go up
-      eff[m] = eff[m] == null ? f[m] : (raise ? Math.max(eff[m], f[m]) : Math.min(eff[m], f[m]));
+  const eff = { protein: 1, kcal: 1, notes: [], fromText: [] };
+  const MICRO_KEYS = ['fb', 'as', 'ns', 'na', 'ch', 'ca', 'fe'];
+  const raises = m => m === 'fb' || m === 'ca' || m === 'fe';   // minimums go up
+
+  /* Chips compound with each other, and so does free text with itself — two
+     goals genuinely stacking is not a conflict. A conflict is a chip and the
+     text both speaking to the same thing, and there the chip wins outright:
+     the multiplier it sets replaces the text's rather than multiplying with
+     it, and the value it sets replaces the text's value. */
+  const gather = keys => {
+    const g = { protein: 1, kcal: 1, micro: {}, labels: [] };
+    keys.forEach(k => {
+      const f = FOCUS_AREAS.find(x => x.k === k);
+      if (!f) return;
+      g.protein *= f.protein || 1;
+      g.kcal *= f.kcal || 1;
+      MICRO_KEYS.forEach(m => {
+        if (f[m] == null) return;
+        g.micro[m] = g.micro[m] == null ? f[m]
+          : (raises(m) ? Math.max(g.micro[m], f[m]) : Math.min(g.micro[m], f[m]));
+      });
+      if (f.note) eff.notes.push(f.label + ': ' + f.note);
+      g.labels.push(f.label);
     });
-    if (f.note) eff.notes.push(f.label + ': ' + f.note);
+    return g;
+  };
+
+  const text = gather(fromAi);
+  const chip = gather(chips);
+
+  eff.protein = chip.protein !== 1 ? chip.protein : text.protein;
+  eff.kcal    = chip.kcal    !== 1 ? chip.kcal    : text.kcal;
+  MICRO_KEYS.forEach(m => {
+    if (chip.micro[m] != null) eff[m] = chip.micro[m];
+    else if (text.micro[m] != null) eff[m] = text.micro[m];
   });
+  eff.fromText = text.labels;
+
   eff.protein = Math.min(eff.protein, 1.35);   // keep compounding sane
   return eff;
 }
@@ -768,6 +799,7 @@ const state = {
   advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
   workout: { focus: null, times: [], log: {} },
   regions: { ...DEFAULT_REGIONS },
+  checkins: [],
   seen:    {},
   date:    todayStr(),
   weekStart: mondayOf(todayStr()),
@@ -799,6 +831,14 @@ function load() {
   const savedWork = readJSON(KEY.work, {}) || {};
   state.regions = Object.assign({}, DEFAULT_REGIONS, readJSON(KEY.regs, {}) || {});
   state.seen    = readJSON(KEY.seen, {}) || {};
+
+  /* Deep-copied rather than shared with the default array — the workout log
+     taught that lesson the hard way. An empty saved list is respected: no
+     times means no nudges, which is a legitimate choice. */
+  const savedCps = readJSON(KEY.cps, null);
+  state.checkins = Array.isArray(savedCps)
+    ? savedCps.filter(t => t && typeof t.min === 'number').map(t => ({ id: t.id || uid(), min: t.min }))
+    : DEFAULT_CHECKPOINTS.map(min => ({ id: uid(), min }));
 
   state.workout = {
     focus: savedWork.focus || null,
@@ -844,6 +884,7 @@ const saveWeather = () => writeJSON(KEY.wx, state.weather);
 
 const saveWorkout = () => writeJSON(KEY.work, state.workout);
 const saveRegions = () => writeJSON(KEY.regs, state.regions);
+const saveCheckins = () => writeJSON(KEY.cps, state.checkins);
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
@@ -1040,7 +1081,7 @@ function microTotalsFor(d) {
 const burnFor = d => state.burn.filter(b => b.d === d);
 
 /* Readings are free-form: one per real clock time, as many as you like.
-   The four CHECKPOINTS are only reminder triggers now, not slots to fill.
+   The check-in times are only reminder triggers, not slots to fill.
    Older records were keyed to a nominal slot but already carried `min`,
    so they slot straight into this ordering. */
 function readingsFor(d) {
@@ -1070,7 +1111,7 @@ function segmentsFor(d) {
   readings.forEach(r => {
     /* Which nominal reminders fell inside this window — shown so a wide
        segment explains itself. */
-    const skipped = CHECKPOINTS.filter(c => c.min > prevMin && c.min < r.min);
+    const skipped = checkpoints().filter(c => c.min > prevMin && c.min < r.min);
     /* Cumulative readings only go up. The entry forms enforce that, but an
        imported backup could still carry a pair out of order — flag it rather
        than rendering a negative burn as if it were real. */
@@ -1129,7 +1170,7 @@ function checkinDue(d = todayStr()) {
   const now = nowMinutes();
   const readings = readingsFor(d);
   const lastMin = readings.length ? readings[readings.length - 1].min : -1;
-  const passed = CHECKPOINTS.filter(c => c.min <= now && c.min > lastMin);
+  const passed = checkpoints().filter(c => c.min <= now && c.min > lastMin);
   if (!passed.length) return null;
   return { since: passed[0], count: passed.length, lastMin };
 }
@@ -1225,6 +1266,8 @@ function applyFeatures() {
   $('#featBurn').checked = !!features.burn;
   $('#featAi').checked = !!features.ai;
   document.body.classList.toggle('no-burn', !features.burn);
+  const cpWrap = $('#cpSettingsWrap');
+  if (cpWrap) cpWrap.classList.toggle('hidden', !features.burn);
   if (!features.burn) {
     $('#cpBanner').classList.add('hidden');
     $('#finalBanner').classList.add('hidden');
@@ -2016,6 +2059,21 @@ function openFoodEditor(food, presetName, opts = {}) {
     $('#fsAiMeta').textContent =
       `Estimated from “${fsAi.desc}” — these are typical values, not measured. `
       + `Adjust anything that looks wrong.${bits.length ? ' (' + bits.join(' · ') + ')' : ''}`;
+  }
+
+  /* Same-named food already on file: show both numbers and let you judge. */
+  const xref = $('#fsXref');
+  const like = opts.lookalike;
+  const estKcal = src && src.kcal;
+  if (fsAi && like && typeof estKcal === 'number') {
+    const off = like.kcal > 0 ? Math.abs(estKcal - like.kcal) / like.kcal : 0;
+    xref.textContent = `Your library already has ${like.n} at ${r0(like.kcal)} kcal per 100 g`
+      + (off > 0.25 ? ` — the estimate is ${estKcal > like.kcal ? 'higher' : 'lower'}. Worth a second look.`
+                    : '. The estimate is in the same range.');
+    xref.classList.toggle('warnnote', off > 0.25);
+    xref.classList.remove('hidden');
+  } else {
+    xref.classList.add('hidden');
   }
   $('#fsIntro').classList.toggle('hidden', !!fsAi);
   $('#fsSave').textContent = fsAi ? 'Confirm & Save' : 'Save food';
@@ -2993,6 +3051,23 @@ async function runAiEstimate() {
   }
 }
 
+/* A narrow cross-check: only an all-but-exact name match counts.
+
+   Fuzzy matching was the tempting version and the wrong one — "mutton
+   biryani" against "chicken biryani" is a genuinely different dish that can
+   differ by 100 kcal, so a warning there is noise. What this catches is the
+   case that actually bites: estimating something already in the library and
+   getting a number nowhere near what is on file.
+
+   It is shown as context, never as a block. The estimate may well be the
+   better number; the point is that you get to see both. */
+function libraryLookalike(name) {
+  const key = slugify(String(name || ''));
+  if (key.length < 4) return null;
+  return allFoods().find(f => slugify(f.n) === key
+    || slugify(f.n).replace(/-/g, '') === key.replace(/-/g, '')) || null;
+}
+
 /* Nothing is saved until Confirm & Save on this screen. */
 function openEstimateConfirm(est, desc) {
   const name = est.name || desc;
@@ -3003,6 +3078,7 @@ function openEstimateConfirm(est, desc) {
   }
   openFoodEditor(null, name, {
     prefill,
+    lookalike: libraryLookalike(name),
     /* No closeSheets() first: showSheet swaps the sheet over, and closing
        here would clear the state openFoodEditor is about to read. */
     forceId: aiCtx.code ? 'off:' + aiCtx.code : null,
@@ -3101,6 +3177,9 @@ const ADVICE_SYSTEM = [
   'Rules:',
   '- Name specific foods FROM THE PROVIDED LIBRARY ONLY, with a realistic gram amount',
   '  or household portion. Never invent a food that is not on the list.',
+  '- Strongly prefer the foods marked as ones they actually eat. Advice built from what is',
+  '  already in their rotation gets followed; advice naming something they have never eaten',
+  '  usually does not. Only reach past that list if nothing in it fits the gap.',
   '- Lead with the gap that matters most: remaining protein first, then remaining calories.',
   '- You are also given fibre, sugar, sodium, cholesterol, calcium and iron for the day. If one is',
   '  clearly OVER a limit or well under a minimum, work it into the same sentence by choosing a food',
@@ -3129,16 +3208,51 @@ const ADVICE_RETRY_NUDGE = [
 
 /* A compact library the model can actually ground on: my own foods first,
    then whatever I log most, then the rest — capped to keep the prompt small. */
+/* What the model is allowed to name.
+
+   allFoods() is already filtered by the region toggles, so a suggestion can
+   never reach for a Filipino dish while that region is switched off — the
+   grounding falls out of Phase 5 rather than being bolted on.
+
+   Two lists rather than one, because "add 150 g chicken biryani" from
+   something eaten twice a week lands very differently from the same sentence
+   about a seed food never once logged. Foods with real history are named as
+   such so the model can prefer them. */
 function libraryForPrompt(limit = 55) {
-  const counts = new Map(usageStats().map(s => [s.fid, s.count]));
-  const scored = allFoods().map(f => ({
-    f,
-    rank: (f.src === 'user' ? 2000 : 0) + (counts.get(f.id) || 0) * 100 + (f.p || 0),
-  }));
-  scored.sort((a, b) => b.rank - a.rank);
-  return scored.slice(0, limit)
-    .map(({ f }) => `${f.n}: ${r0(f.kcal)} kcal, ${gfmt(f.p)} g protein per 100 g`)
-    .join('\n');
+  const stats = usageStats();
+  const counts = new Map(stats.map(s => [s.fid, s.count]));
+  const lastAte = new Map(stats.map(s => [s.fid, s.lastTs]));
+
+  const line = f => `${f.n}: ${r0(f.kcal)} kcal, ${gfmt(f.p)} g protein per 100 g`;
+
+  const foods = allFoods();
+  const eaten = foods
+    .filter(f => counts.get(f.id))
+    .sort((a, b) => (counts.get(b.id) - counts.get(a.id))
+                 || (lastAte.get(b.id) - lastAte.get(a.id)));
+
+  const rest = foods
+    .filter(f => !counts.get(f.id))
+    .map(f => ({ f, rank: (f.src === 'user' ? 2000 : 0) + (f.p || 0) }))
+    .sort((a, b) => b.rank - a.rank)
+    .map(x => x.f);
+
+  /* Usuals get most of the budget, but never the whole of it — a day already
+     over on everything needs a food that is not on the usual rotation. */
+  const usuals = eaten.slice(0, Math.min(eaten.length, Math.round(limit * 0.6)));
+  const others = rest.slice(0, limit - usuals.length);
+
+  const parts = [];
+  if (usuals.length) {
+    parts.push('Foods they actually eat, most often first — PREFER THESE:');
+    parts.push(usuals.map(f => '- ' + line(f)).join('\n'));
+    parts.push('');
+  }
+  parts.push(usuals.length
+    ? 'Also in their library (regions they have switched on), if nothing above fits:'
+    : 'Their library (regions they have switched on):');
+  parts.push(others.map(f => '- ' + line(f)).join('\n'));
+  return parts.join('\n');
 }
 
 function advicePrompt(d, slotMin) {
@@ -3560,9 +3674,14 @@ function renderProfile() {
   renderGoalNote();
   renderBurnNote();
   if (!cityPending) $('#pfWeather').textContent = weatherNote();
-  $('#pfFocusNote').textContent = p.aiFocus && p.aiFocus.note
-    ? 'From what you wrote: ' + p.aiFocus.note
-    : (p.focusText ? 'Saved. It will be read by the model the next time targets are calculated.' : '');
+  /* An unreadable goal gets said out loud rather than quietly dropped —
+     otherwise you would be left thinking it had been taken into account. */
+  const note = $('#pfFocusNote');
+  const af = p.aiFocus;
+  note.classList.toggle('warnnote', !!(af && af.unmapped));
+  note.textContent = af && af.note
+    ? (af.unmapped ? 'Couldn’t read that: ' + af.note : 'From what you wrote: ' + af.note)
+    : (p.focusText ? 'Saved. It will be read the next time targets are calculated.' : '');
   renderProfileSummary();
 }
 
@@ -3698,7 +3817,11 @@ async function saveProfileAndCalc({ recalcOnly = false } = {}) {
   }
   await refreshWeather({ force: true });
 
-  if (state.profile.focusText) await interpretFocusText();
+  /* Re-reading unchanged text on every weekly weight update would be a free
+     model call spent on an answer already known. */
+  if (state.profile.focusText && state.profile.focusText !== state.profile.focusRead) {
+    await interpretFocusText();
+  }
 
   applyCalculatedTargets();
   renderProfile();
@@ -3828,24 +3951,63 @@ const FOCUS_SYSTEM = [
 
 async function interpretFocusText() {
   const text = state.profile.focusText;
-  if (!text) { state.profile.aiFocus = null; saveProfile(); return; }
+  if (!text) { state.profile.aiFocus = null; state.profile.focusRead = ''; saveProfile(); return; }
+
+  focusBusy = true;
+  renderFocusBusy();
 
   if (!features.ai || !(state.ai.key || '').trim()) {
     state.profile.aiFocus = localFocusGuess(text);
+    state.profile.focusRead = text;
+    focusBusy = false;
     saveProfile();
+    renderFocusBusy();
     return;
   }
   try {
     const raw = await aiChat(FOCUS_SYSTEM, text, { json: true, maxTokens: 300, temperature: 0.1 });
     const obj = extractJson(raw) || {};
+    /* Only the fixed area keys are accepted, so the model can shift emphasis
+       but never invent a nutrient — the same rule the food estimator uses on
+       implausible values. */
     const valid = FOCUS_AREAS.map(f => f.k);
     const areas = (Array.isArray(obj.areas) ? obj.areas : []).filter(a => valid.includes(a)).slice(0, 3);
-    state.profile.aiFocus = { areas, note: String(obj.note || '').slice(0, 120), by: 'ai' };
+
+    state.profile.aiFocus = areas.length
+      ? { areas, note: String(obj.note || '').slice(0, 140), by: 'ai' }
+      /* Nothing usable came back. Silently applying nothing would leave you
+         believing a goal had been taken into account when it had not. */
+      : { areas: [], by: 'ai', unmapped: true,
+          note: 'The model could not turn that into a nutrition emphasis. Try naming what you '
+              + 'want to change — "hair thinning", "losing belly fat", "more energy on shift" — '
+              + 'or tap one of the chips above instead.' };
   } catch (err) {
     console.warn('[Macros] focus interpretation failed:', err.code, err.message);
-    state.profile.aiFocus = localFocusGuess(text);
+    const guess = localFocusGuess(text);
+    state.profile.aiFocus = Object.assign(guess, {
+      failed: true,
+      note: guess.areas.length
+        ? guess.note + ' (' + aiErrorText(err) + ')'
+        : 'Could not reach the model to read that. ' + aiErrorText(err),
+      unmapped: !guess.areas.length,
+    });
   }
+  state.profile.focusRead = text;
+  focusBusy = false;
   saveProfile();
+  renderFocusBusy();
+}
+
+/* The profile save already awaits this; the note says so rather than the
+   screen simply sitting there. */
+let focusBusy = false;
+function renderFocusBusy() {
+  const note = $('#pfFocusNote');
+  if (!note) return;
+  if (focusBusy) {
+    note.classList.remove('warnnote');
+    note.textContent = 'Reading your goal…';
+  }
 }
 
 /* No key, no network, no problem — a keyword pass covers the obvious cases. */
@@ -3865,8 +4027,10 @@ function localFocusGuess(text) {
     areas,
     note: areas.length
       ? 'Matched to ' + areas.map(k => (FOCUS_AREAS.find(f => f.k === k) || {}).label).join(', ') + ' without the model.'
-      : 'Nothing obvious matched — add an OpenRouter key and it will be read properly.',
+      : 'Nothing obvious matched that text. Add an OpenRouter key in Settings and it will be read '
+        + 'properly, or tap one of the chips above.',
     by: 'local',
+    unmapped: !areas.length,
   };
 }
 
@@ -4063,21 +4227,26 @@ function refreshAfterRegionChange() {
 
 /* ------------------------ workout times in Settings ------------------------ */
 
-function renderWorkoutTimes() {
-  const list = $('#woTimeList');
+/* Reminder times look and behave the same wherever they appear, so both
+   lists are drawn by one function rather than two that drift apart. */
+function renderTimeList({ mount, get, set, emptyText, after }) {
+  const list = $(mount);
+  if (!list) return;
   list.innerHTML = '';
-  const times = state.workout.times || [];
+  const times = get();
 
   if (!times.length) {
     const p = document.createElement('p');
     p.className = 'hint';
-    p.textContent = 'No workout times set — the Workout tab still works, it just will not nudge you.';
+    p.textContent = emptyText;
     list.appendChild(p);
+    return;
   }
 
   times.forEach(t => {
     const row = document.createElement('div');
     row.className = 'timerow';
+
     const input = document.createElement('input');
     input.type = 'time';
     input.value = minToHHMM(t.min);
@@ -4085,27 +4254,47 @@ function renderWorkoutTimes() {
       const v = parseTimeInput(input.value);
       if (v == null) { input.value = minToHHMM(t.min); return; }
       t.min = v;
-      state.workout.times.sort((a, b) => a.min - b.min);
-      saveWorkout();
-      markSeen('workoutTimes');
-      renderWorkoutTimes();
-      renderWorkoutBanner();
-      renderBell();
+      set(times.slice().sort((a, b) => a.min - b.min));
+      after();
     };
+
     const del = document.createElement('button');
     del.className = 'ghost small';
     del.textContent = 'Remove';
-    del.onclick = () => {
-      state.workout.times = state.workout.times.filter(x => x.id !== t.id);
-      saveWorkout();
-      markSeen('workoutTimes');
-      renderWorkoutTimes();
-      renderWorkoutBanner();
-      renderBell();
-    };
+    del.onclick = () => { set(times.filter(x => x.id !== t.id)); after(); };
+
     row.appendChild(input);
     row.appendChild(del);
     list.appendChild(row);
+  });
+}
+
+/* A new row lands on a free minute so two never collide and look like a
+   duplicate that will not delete. */
+function nextFreeMinute(times, start) {
+  const used = times.map(t => t.min);
+  let m = start;
+  while (used.includes(m)) m = (m + 30) % 1440;
+  return m;
+}
+
+function renderWorkoutTimes() {
+  renderTimeList({
+    mount: '#woTimeList',
+    get: () => state.workout.times || [],
+    set: v => { state.workout.times = v; saveWorkout(); markSeen('workoutTimes'); },
+    emptyText: 'No workout times set — the Workout tab still works, it just will not nudge you.',
+    after: () => { renderWorkoutTimes(); renderWorkoutBanner(); renderBell(); },
+  });
+}
+
+function renderCheckinTimes() {
+  renderTimeList({
+    mount: '#cpTimeList',
+    get: () => state.checkins,
+    set: v => { state.checkins = v; saveCheckins(); },
+    emptyText: 'No check-in times — burn tracking still works, you just log readings when you choose.',
+    after: () => { renderCheckinTimes(); renderAll(); },
   });
 }
 
@@ -4347,6 +4536,7 @@ function renderSettings() {
   $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
   renderAiStatus();
   renderRegions();
+  renderCheckinTimes();
   renderWorkoutTimes();
   checkTargetMath();
 }
@@ -4437,6 +4627,7 @@ function exportBackup() {
     profile: state.profile, customTargets: state.customTargets,
     workout: state.workout,
     regions: state.regions,
+    checkins: state.checkins,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -4482,6 +4673,10 @@ function importBackup(file) {
       });
       if (Array.isArray(d.customTargets)) state.customTargets = d.customTargets.slice();
       if (d.regions) state.regions = Object.assign({}, DEFAULT_REGIONS, d.regions);
+      if (Array.isArray(d.checkins)) {
+        state.checkins = d.checkins.filter(t => t && typeof t.min === 'number')
+          .map(t => ({ id: t.id || uid(), min: t.min }));
+      }
       if (d.workout) {
         state.workout = {
           focus: d.workout.focus || state.workout.focus || null,
@@ -4496,7 +4691,7 @@ function importBackup(file) {
       }
 
       saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice();
-      saveTargets(); saveAi(); saveProfile(); saveCustomTargets(); saveWorkout(); saveRegions();
+      saveTargets(); saveAi(); saveProfile(); saveCustomTargets(); saveWorkout(); saveRegions(); saveCheckins();
       loadEnabledRegions().then(() => { renderAll(); renderLibrary(); });
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
@@ -4768,18 +4963,27 @@ function init() {
   /* workout */
   $('#woDismiss').onclick = () => { workoutBannerDismissed = true; renderWorkoutBanner(); renderBell(); };
   $('#woAddTime').onclick = () => {
-    const mins = (state.workout.times || []).map(t => t.min);
-    /* Offset a new one so two rows never sit on the same minute and look
-       like a duplicate that will not delete. */
-    let m = 18 * 60;
-    while (mins.includes(m)) m = (m + 30) % 1440;
-    state.workout.times.push({ id: uid(), min: m });
+    state.workout.times.push({ id: uid(), min: nextFreeMinute(state.workout.times, 18 * 60) });
     state.workout.times.sort((a, b) => a.min - b.min);
     saveWorkout();
     markSeen('workoutTimes');
     renderWorkoutTimes();
     renderWorkoutBanner();
     renderBell();
+  };
+  $('#cpAddTime').onclick = () => {
+    state.checkins.push({ id: uid(), min: nextFreeMinute(state.checkins, 15 * 60) });
+    state.checkins.sort((a, b) => a.min - b.min);
+    saveCheckins();
+    renderCheckinTimes();
+    renderAll();
+  };
+  $('#cpResetTimes').onclick = () => {
+    state.checkins = DEFAULT_CHECKPOINTS.map(min => ({ id: uid(), min }));
+    saveCheckins();
+    renderCheckinTimes();
+    renderAll();
+    toast('Check-in times reset to 8:00, 12:00, 5:00 and 10:30');
   };
 
   $('#adviceAgain').onclick = () => {

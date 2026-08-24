@@ -370,6 +370,19 @@
         it with AI, or add it by hand — once saved it is in your library permanently.</p>
     </div>
 
+    <div id="cpSettingsWrap">
+    <h2 class="sect">Burn check-in times</h2>
+    <div class="card form">
+      <p class="hint">When to be reminded to log your burned total. These are nudges, not slots —
+        a reading is stamped with the real time you took it, whatever the reminder said. Add as
+        many or as few as suit your shift; with none set, burn tracking still works and simply
+        never nudges you.</p>
+      <div id="cpTimeList"></div>
+      <button class="wide ghost" id="cpAddTime">+ Add a check-in time</button>
+      <button class="wide ghost" id="cpResetTimes">Reset to 8:00 / 12:00 / 5:00 / 10:30</button>
+    </div>
+    </div>
+
     <h2 class="sect">Workout reminders</h2>
     <div class="card form">
       <p class="hint">There is no server, so nothing can be pushed to your phone. These times are
@@ -488,6 +501,7 @@
     <b>✦ AI estimated — please check before saving</b>
     <span id="fsAiMeta"></span>
   </div>
+  <p class="hint hidden" id="fsXref"></p>
 
   <p class="hint" id="fsIntro">Enter values <b>per 100 g</b> (or per 100 ml for drinks). Check the packet, or use a close match.</p>
 

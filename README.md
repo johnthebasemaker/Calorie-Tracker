@@ -148,6 +148,13 @@ current time and editable in the portion sheet. Log breakfast at 2pm because you
 were on shift and you can correct it to 07:30, so it lands in the right segment.
 Entries logged before this existed fall back to when they were saved.
 
+**Check-in times are yours.** Settings → **Burn check-in times** takes as many
+or as few as your shift needs — add, remove, retime. A fresh install starts on
+8:00, 12:00, 5:00 and 10:30, which is only where it starts. Everything
+downstream reads that list: the banner, the bell, and the "reminders you passed
+inside this window" labels under the segment table. Remove them all and burn
+tracking still works; it simply stops nudging.
+
 **Check-in reminders.** There's no server, so there are no push notifications —
 your iPhone Reminders do the nudging. When you open the app it checks the clock
 against the four times and, if any have gone by since your last reading, shows
@@ -167,6 +174,23 @@ times, your burn/eaten balance, all six extra nutrients against their targets,
 and 55 foods from your own library with their per-100 g values. It's told to name
 only foods from that list, so you get "add 150 g chicken breast and 3 idli with
 sambar" rather than generic advice.
+
+**It can only name food you can actually eat.** The list comes from the same
+region-filtered library the rest of the app uses, so a suggestion can never reach
+for a Filipino dish while that region is switched off — the grounding falls out
+of the region toggles rather than being bolted on beside them. The list is also
+split in two: foods you have actually logged, most-eaten first and explicitly
+marked as ones you eat, then the rest of the library. Advice built from what is
+already in your rotation gets followed; advice naming something you have never
+eaten usually does not.
+
+**Estimates get cross-checked against your library.** If an AI estimate has the
+same name as a food already on file, the confirm screen shows both numbers —
+*"your library already has Chicken Biryani at 180 kcal"* — and says plainly when
+the estimate is more than 25% away. It is context, never a block; the estimate
+may well be the better number. Matching is deliberately near-exact rather than
+fuzzy: "mutton biryani" against "chicken biryani" is a genuinely different dish,
+and a warning there would be noise.
 
 The nutrient lines spell out the direction and the verdict — `Fibre: 2 g (aim for
 at least 30 g) — well under the minimum` — so the model isn't left to guess
@@ -445,6 +469,19 @@ mostly fat; steeper deficits cost the muscle a gaining phase is for.
 deficit to protect lean mass, 1.6 g/kg maintaining — the range where gains plateau
 in Morton et al. (2018) and Helms et al. (2014). Fat holds at 25 % of energy with
 a floor of 0.8 g/kg and 20 % of calories; carbs take the remainder.
+
+**Focus areas and free text combine.** Chips and typed text are both things you
+asked for, so both apply — tick *Specific muscle gain* and type *"my hair is
+shedding"* and you get the muscle protein target **and** the raised iron. Where
+they speak to the same nutrient, the chip wins: you tapped it deliberately, the
+text was read by a model. Two chips still compound with each other; so does text
+with itself. Only chip-versus-text is a conflict.
+
+If the model cannot turn what you typed into a nutrition emphasis, the app says
+so in amber and asks you to rephrase or use a chip — rather than storing an
+empty result and leaving you thinking your goal was taken into account. Unchanged
+text is not re-sent on later recalculations, so a weekly weight update does not
+spend a call re-reading an answer already known.
 
 **Focus areas** shift the emphasis. Hair growth raises iron and protein, because
 low ferritin is the most common dietary factor in shedding. Belly and full-body
