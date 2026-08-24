@@ -1,0 +1,928 @@
+{
+ "key": "pakistani",
+ "label": "Pakistani",
+ "version": 1,
+ "note": "Per 100 g as eaten. Composite dishes are marked est:1 — derived from a standard home recipe rather than a published entry for the finished dish. Base ingredient values from USDA FoodData Central and IFCT 2017; Pakistani and North Indian cooking share most base ingredients, so shared items were cross-checked against both.",
+ "foods": [
+  {
+   "n": "Nihari",
+   "g": "Pakistani",
+   "kcal": 196,
+   "p": 15.0,
+   "c": 4.0,
+   "f": 13.0,
+   "a": "beef shank stew slow cooked",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 250
+    }
+   ],
+   "fb": 0.6,
+   "sg": 1.0,
+   "as": 0,
+   "na": 480,
+   "ch": 78,
+   "ca": 26,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Haleem",
+   "g": "Pakistani",
+   "kcal": 148,
+   "p": 9.0,
+   "c": 14.0,
+   "f": 5.6,
+   "a": "daleem wheat lentil meat",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 250
+    }
+   ],
+   "fb": 2.6,
+   "sg": 1.2,
+   "as": 0,
+   "na": 420,
+   "ch": 26,
+   "ca": 34,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Chicken Karahi",
+   "g": "Pakistani",
+   "kcal": 178,
+   "p": 16.0,
+   "c": 4.5,
+   "f": 10.5,
+   "a": "kadai wok chicken",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 200
+    }
+   ],
+   "fb": 1.0,
+   "sg": 2.6,
+   "as": 0,
+   "na": 420,
+   "ch": 68,
+   "ca": 38,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Mutton Karahi",
+   "g": "Pakistani",
+   "kcal": 212,
+   "p": 15.5,
+   "c": 4.0,
+   "f": 15.0,
+   "a": "kadai wok mutton lamb",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 200
+    }
+   ],
+   "fb": 1.0,
+   "sg": 2.4,
+   "as": 0,
+   "na": 430,
+   "ch": 76,
+   "ca": 32,
+   "fe": 2.1,
+   "est": 1
+  },
+  {
+   "n": "Seekh Kebab",
+   "g": "Pakistani",
+   "kcal": 238,
+   "p": 17.5,
+   "c": 3.0,
+   "f": 17.0,
+   "a": "minced skewer kebab",
+   "u": [
+    {
+     "l": "1 skewer",
+     "g": 70
+    }
+   ],
+   "fb": 0.6,
+   "sg": 1.2,
+   "as": 0,
+   "na": 520,
+   "ch": 68,
+   "ca": 26,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Chapli Kebab",
+   "g": "Pakistani",
+   "kcal": 268,
+   "p": 16.0,
+   "c": 7.0,
+   "f": 19.5,
+   "a": "peshawari flat patty",
+   "u": [
+    {
+     "l": "1 kebab",
+     "g": 90
+    }
+   ],
+   "fb": 1.6,
+   "sg": 1.8,
+   "as": 0,
+   "na": 540,
+   "ch": 72,
+   "ca": 34,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Shami Kebab",
+   "g": "Pakistani",
+   "kcal": 218,
+   "p": 14.5,
+   "c": 10.0,
+   "f": 13.0,
+   "a": "chana dal patty",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 80
+    }
+   ],
+   "fb": 2.4,
+   "sg": 1.0,
+   "as": 0,
+   "na": 500,
+   "ch": 70,
+   "ca": 32,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Bihari Kebab",
+   "g": "Pakistani",
+   "kcal": 232,
+   "p": 18.0,
+   "c": 3.5,
+   "f": 16.0,
+   "a": "beef strip kebab",
+   "u": [
+    {
+     "l": "1 skewer",
+     "g": 70
+    }
+   ],
+   "fb": 0.5,
+   "sg": 1.6,
+   "as": 0,
+   "na": 510,
+   "ch": 74,
+   "ca": 24,
+   "fe": 2.8,
+   "est": 1
+  },
+  {
+   "n": "Aloo Gosht",
+   "g": "Pakistani",
+   "kcal": 162,
+   "p": 11.0,
+   "c": 8.5,
+   "f": 9.6,
+   "a": "mutton potato curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 200
+    }
+   ],
+   "fb": 1.4,
+   "sg": 1.6,
+   "as": 0,
+   "na": 400,
+   "ch": 52,
+   "ca": 26,
+   "fe": 1.8,
+   "est": 1
+  },
+  {
+   "n": "Palak Gosht",
+   "g": "Pakistani",
+   "kcal": 166,
+   "p": 13.0,
+   "c": 4.0,
+   "f": 10.8,
+   "a": "spinach mutton",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 200
+    }
+   ],
+   "fb": 2.0,
+   "sg": 1.4,
+   "as": 0,
+   "na": 400,
+   "ch": 58,
+   "ca": 132,
+   "fe": 3.0,
+   "est": 1
+  },
+  {
+   "n": "Bhuna Gosht",
+   "g": "Pakistani",
+   "kcal": 218,
+   "p": 17.0,
+   "c": 3.5,
+   "f": 15.0,
+   "a": "dry fried mutton",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 0.8,
+   "sg": 1.8,
+   "as": 0,
+   "na": 440,
+   "ch": 78,
+   "ca": 28,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Achar Gosht",
+   "g": "Pakistani",
+   "kcal": 196,
+   "p": 15.0,
+   "c": 4.5,
+   "f": 13.0,
+   "a": "pickle spiced mutton",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.2,
+   "sg": 1.6,
+   "as": 0,
+   "na": 520,
+   "ch": 70,
+   "ca": 30,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Aloo Keema",
+   "g": "Pakistani",
+   "kcal": 198,
+   "p": 13.5,
+   "c": 9.0,
+   "f": 12.5,
+   "a": "mince potato",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.6,
+   "sg": 1.4,
+   "as": 0,
+   "na": 420,
+   "ch": 54,
+   "ca": 26,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Chicken Handi",
+   "g": "Pakistani",
+   "kcal": 188,
+   "p": 15.0,
+   "c": 5.0,
+   "f": 12.0,
+   "a": "creamy chicken pot",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 200
+    }
+   ],
+   "fb": 1.0,
+   "sg": 2.6,
+   "as": 0,
+   "na": 400,
+   "ch": 64,
+   "ca": 58,
+   "fe": 1.1,
+   "est": 1
+  },
+  {
+   "n": "Mutton Korma",
+   "g": "Pakistani",
+   "kcal": 224,
+   "p": 14.0,
+   "c": 6.0,
+   "f": 16.5,
+   "a": "yogurt nut curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.2,
+   "sg": 3.0,
+   "as": 0.5,
+   "na": 420,
+   "ch": 74,
+   "ca": 52,
+   "fe": 2.3,
+   "est": 1
+  },
+  {
+   "n": "Kofta Curry",
+   "g": "Pakistani",
+   "kcal": 208,
+   "p": 13.0,
+   "c": 6.5,
+   "f": 14.5,
+   "a": "meatball curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.2,
+   "sg": 2.2,
+   "as": 0,
+   "na": 430,
+   "ch": 66,
+   "ca": 34,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Paya (trotters)",
+   "g": "Pakistani",
+   "kcal": 176,
+   "p": 14.0,
+   "c": 1.5,
+   "f": 12.8,
+   "a": "trotter soup siri paya",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 250
+    }
+   ],
+   "fb": 0,
+   "sg": 0.4,
+   "as": 0,
+   "na": 460,
+   "ch": 90,
+   "ca": 42,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Sindhi Biryani",
+   "g": "Pakistani",
+   "kcal": 184,
+   "p": 8.0,
+   "c": 24.0,
+   "f": 6.4,
+   "a": "spicy layered rice",
+   "u": [
+    {
+     "l": "1 plate",
+     "g": 350
+    }
+   ],
+   "fb": 1.4,
+   "sg": 2.0,
+   "as": 0,
+   "na": 460,
+   "ch": 32,
+   "ca": 32,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Yakhni Pulao",
+   "g": "Pakistani",
+   "kcal": 172,
+   "p": 7.6,
+   "c": 24.0,
+   "f": 5.2,
+   "a": "stock rice pilaf",
+   "u": [
+    {
+     "l": "1 plate",
+     "g": 300
+    }
+   ],
+   "fb": 1.0,
+   "sg": 1.0,
+   "as": 0,
+   "na": 400,
+   "ch": 28,
+   "ca": 24,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Beef Pulao",
+   "g": "Pakistani",
+   "kcal": 182,
+   "p": 9.0,
+   "c": 23.0,
+   "f": 6.2,
+   "a": "meat pilaf",
+   "u": [
+    {
+     "l": "1 plate",
+     "g": 300
+    }
+   ],
+   "fb": 1.0,
+   "sg": 0.9,
+   "as": 0,
+   "na": 410,
+   "ch": 34,
+   "ca": 22,
+   "fe": 1.8,
+   "est": 1
+  },
+  {
+   "n": "Masoor Daal",
+   "g": "Pakistani",
+   "kcal": 112,
+   "p": 6.4,
+   "c": 15.0,
+   "f": 2.8,
+   "a": "red lentil",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 4.6,
+   "sg": 1.2,
+   "as": 0,
+   "na": 330,
+   "ch": 0,
+   "ca": 24,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Chana Daal",
+   "g": "Pakistani",
+   "kcal": 128,
+   "p": 7.0,
+   "c": 16.5,
+   "f": 3.6,
+   "a": "split gram lentil",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 5.4,
+   "sg": 1.6,
+   "as": 0,
+   "na": 330,
+   "ch": 0,
+   "ca": 30,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Maash ki Daal",
+   "g": "Pakistani",
+   "kcal": 134,
+   "p": 7.4,
+   "c": 16.0,
+   "f": 4.2,
+   "a": "urad white lentil",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 4.8,
+   "sg": 1.0,
+   "as": 0,
+   "na": 340,
+   "ch": 0,
+   "ca": 46,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Chana Chaat",
+   "g": "Pakistani",
+   "kcal": 138,
+   "p": 6.0,
+   "c": 20.0,
+   "f": 3.6,
+   "a": "chickpea salad snack",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 150
+    }
+   ],
+   "fb": 5.6,
+   "sg": 3.4,
+   "as": 0,
+   "na": 420,
+   "ch": 0,
+   "ca": 52,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Dahi Bhalla",
+   "g": "Pakistani",
+   "kcal": 148,
+   "p": 4.8,
+   "c": 17.0,
+   "f": 6.6,
+   "a": "dahi vada yogurt",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 120
+    }
+   ],
+   "fb": 1.8,
+   "sg": 5.0,
+   "as": 1.5,
+   "na": 380,
+   "ch": 6,
+   "ca": 90,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Bun Kebab",
+   "g": "Pakistani",
+   "kcal": 262,
+   "p": 10.5,
+   "c": 29.0,
+   "f": 11.5,
+   "a": "street burger kebab",
+   "u": [
+    {
+     "l": "1 bun kebab",
+     "g": 150
+    }
+   ],
+   "fb": 2.0,
+   "sg": 4.0,
+   "as": 2.0,
+   "na": 520,
+   "ch": 42,
+   "ca": 54,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Fried Fish (Lahori)",
+   "g": "Pakistani",
+   "kcal": 232,
+   "p": 20.0,
+   "c": 7.0,
+   "f": 13.5,
+   "a": "batter fried fish masala",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 120
+    }
+   ],
+   "fb": 0.4,
+   "sg": 0.4,
+   "as": 0,
+   "na": 460,
+   "ch": 58,
+   "ca": 38,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Chicken Jalfrezi",
+   "g": "Pakistani",
+   "kcal": 152,
+   "p": 15.0,
+   "c": 6.0,
+   "f": 7.4,
+   "a": "pepper stir fry chicken",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.6,
+   "sg": 3.0,
+   "as": 0,
+   "na": 420,
+   "ch": 58,
+   "ca": 32,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Roghni Naan",
+   "g": "Pakistani",
+   "kcal": 332,
+   "p": 8.6,
+   "c": 48.0,
+   "f": 11.5,
+   "a": "sesame enriched naan",
+   "u": [
+    {
+     "l": "1 naan",
+     "g": 100
+    }
+   ],
+   "fb": 2.0,
+   "sg": 4.8,
+   "as": 3.0,
+   "na": 420,
+   "ch": 8,
+   "ca": 70,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Sheermal",
+   "g": "Pakistani",
+   "kcal": 348,
+   "p": 7.6,
+   "c": 52.0,
+   "f": 12.5,
+   "a": "saffron milk bread",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 80
+    }
+   ],
+   "fb": 1.8,
+   "sg": 10.0,
+   "as": 7.5,
+   "na": 300,
+   "ch": 14,
+   "ca": 80,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Taftan",
+   "g": "Pakistani",
+   "kcal": 326,
+   "p": 8.4,
+   "c": 50.0,
+   "f": 10.0,
+   "a": "leavened tandoor bread",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 90
+    }
+   ],
+   "fb": 1.9,
+   "sg": 7.0,
+   "as": 4.5,
+   "na": 340,
+   "ch": 10,
+   "ca": 72,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Kulcha",
+   "g": "Pakistani",
+   "kcal": 298,
+   "p": 8.0,
+   "c": 50.0,
+   "f": 7.0,
+   "a": "soft flatbread",
+   "u": [
+    {
+     "l": "1 kulcha",
+     "g": 85
+    }
+   ],
+   "fb": 2.0,
+   "sg": 3.6,
+   "as": 2.0,
+   "na": 430,
+   "ch": 4,
+   "ca": 60,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Doodh Patti Chai",
+   "g": "Pakistani",
+   "kcal": 88,
+   "p": 2.4,
+   "c": 10.5,
+   "f": 3.8,
+   "a": "milk tea strong",
+   "u": [
+    {
+     "l": "1 cup",
+     "g": 150
+    }
+   ],
+   "fb": 0,
+   "sg": 10.0,
+   "as": 7.4,
+   "na": 42,
+   "ch": 10,
+   "ca": 86,
+   "fe": 0.1,
+   "est": 1
+  },
+  {
+   "n": "Kashmiri Chai",
+   "g": "Pakistani",
+   "kcal": 76,
+   "p": 2.2,
+   "c": 7.5,
+   "f": 4.0,
+   "a": "pink tea noon chai",
+   "u": [
+    {
+     "l": "1 cup",
+     "g": 150
+    }
+   ],
+   "fb": 0,
+   "sg": 6.8,
+   "as": 4.4,
+   "na": 120,
+   "ch": 11,
+   "ca": 84,
+   "fe": 0.1,
+   "est": 1
+  },
+  {
+   "n": "Falooda",
+   "g": "Pakistani",
+   "kcal": 168,
+   "p": 3.0,
+   "c": 28.0,
+   "f": 4.8,
+   "a": "vermicelli milk dessert",
+   "u": [
+    {
+     "l": "1 glass",
+     "g": 250
+    }
+   ],
+   "fb": 0.4,
+   "sg": 22.0,
+   "as": 17.0,
+   "na": 50,
+   "ch": 12,
+   "ca": 96,
+   "fe": 0.3,
+   "est": 1
+  },
+  {
+   "n": "Sheer Khurma",
+   "g": "Pakistani",
+   "kcal": 212,
+   "p": 4.6,
+   "c": 30.0,
+   "f": 8.4,
+   "a": "eid vermicelli dessert",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 150
+    }
+   ],
+   "fb": 0.8,
+   "sg": 24.0,
+   "as": 16.0,
+   "na": 60,
+   "ch": 18,
+   "ca": 120,
+   "fe": 0.6,
+   "est": 1
+  },
+  {
+   "n": "Gajar ka Halwa",
+   "g": "Pakistani",
+   "kcal": 248,
+   "p": 3.6,
+   "c": 32.0,
+   "f": 11.5,
+   "a": "carrot halwa",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 120
+    }
+   ],
+   "fb": 2.0,
+   "sg": 27.0,
+   "as": 20.0,
+   "na": 70,
+   "ch": 24,
+   "ca": 110,
+   "fe": 0.8,
+   "est": 1
+  },
+  {
+   "n": "Ras Malai",
+   "g": "Pakistani",
+   "kcal": 218,
+   "p": 6.0,
+   "c": 26.0,
+   "f": 10.0,
+   "a": "cheese milk dessert",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 100
+    }
+   ],
+   "fb": 0,
+   "sg": 24.0,
+   "as": 18.0,
+   "na": 60,
+   "ch": 32,
+   "ca": 180,
+   "fe": 0.3,
+   "est": 1
+  },
+  {
+   "n": "Zarda",
+   "g": "Pakistani",
+   "kcal": 308,
+   "p": 3.4,
+   "c": 54.0,
+   "f": 8.6,
+   "a": "sweet yellow rice",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 120
+    }
+   ],
+   "fb": 0.8,
+   "sg": 32.0,
+   "as": 29.0,
+   "na": 40,
+   "ch": 10,
+   "ca": 40,
+   "fe": 0.7,
+   "est": 1
+  },
+  {
+   "n": "Lassi (salted)",
+   "g": "Pakistani",
+   "kcal": 52,
+   "p": 2.6,
+   "c": 4.0,
+   "f": 2.6,
+   "a": "namkeen yogurt drink",
+   "u": [
+    {
+     "l": "1 glass",
+     "g": 250
+    }
+   ],
+   "fb": 0,
+   "sg": 3.8,
+   "as": 0,
+   "na": 260,
+   "ch": 8,
+   "ca": 96,
+   "fe": 0.1,
+   "est": 1
+  }
+ ]
+}

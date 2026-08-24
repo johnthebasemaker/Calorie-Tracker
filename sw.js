@@ -1,6 +1,6 @@
 /* Service worker: cache the app shell so the tracker opens offline.
    Bump CACHE when you change any shell file. */
-const CACHE = 'macros-v9';
+const CACHE = 'macros-v10';
 
 const SHELL = [
   './',
@@ -15,8 +15,25 @@ const SHELL = [
   './icons/apple-touch-icon.png',
 ];
 
+/* Region libraries are fetched on demand, not at startup — but precaching
+   them here, after the shell is already in, means switching a region on
+   works with no signal. The app still asks for them lazily; this just makes
+   sure the answer is local. All three together are 7 KB gzipped. */
+const REGION_FILES = [
+  './regions/north-indian.json',
+  './regions/pakistani.json',
+  './regions/filipino.json',
+];
+
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(c => c.addAll(SHELL)
+        /* Regions are a nice-to-have: a failure here must not stop the app
+           shell installing, so they are warmed separately and forgiven. */
+        .then(() => c.addAll(REGION_FILES).catch(() => {})))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {

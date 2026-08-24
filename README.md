@@ -50,6 +50,41 @@ per-100 g values once, and it's in your library forever.
 Local-first rather than strictly OFF-first: for idli or kabsa the local hit is
 both faster and more accurate, and you still see every packaged match below it.
 
+**Food regions.** Five curated cuisines, switched on independently in
+Settings → **Food regions** — South Indian, Saudi/Gulf, North Indian, Pakistani
+and Filipino. They stack rather than being one exclusive mode, because someone
+in Riyadh might genuinely eat all three of South Indian, Gulf and Filipino food
+in the same week.
+
+South Indian and Saudi/Gulf ship inside the app. The other three live in
+`regions/*.json` and are fetched the first time you switch one on, then kept in
+this browser — after that, switching is instant and needs no signal. The service
+worker also precaches them after the app shell is in, so in practice the first
+switch-on is usually local too. Switch a region off and its foods leave search
+and Quick add; **nothing you have logged changes**, because every log entry
+already carries its own per-100 g numbers.
+
+Basics that belong to no cuisine — oils, drinks, protein staples — are never
+hidden by a toggle.
+
+*On the size tradeoff, measured rather than assumed:* all three region files
+together are **7 KB gzipped**, against **367 KB** for the barcode scanner that
+already ships. Lazy loading is not what makes the app fast today; it is what
+stops the tenth region from being the thing that slows it down. Bundling would
+have been simpler and fully offline from install — the lazy path was chosen for
+how it scales, not for what it saves right now.
+
+**What the EST tag means.** 120 new dishes came with the three added regions.
+Nine of them — the Filipino dishes with a direct entry in the FNRI Philippine
+Food Composition Tables — are read straight off a published table. The other 111
+are derived from a standard home recipe using IFCT 2017 and USDA FoodData Central
+ingredient values, and carry an **EST** tag in the Foods tab so you know which
+numbers to distrust first. Tap any of them to correct it.
+
+**Anything outside those five regions** is covered by what was already there:
+search Open Food Facts, estimate it with AI, or add it by hand. Once saved it is
+in your library permanently, exactly like a barcode miss.
+
 **Why the fizzy drinks are seeded.** Open Food Facts' search server goes down
 for minutes at a time, often enough that a can of Mirinda was simply unfindable
 when it did. So Pepsi, Coca-Cola, Mountain Dew, Mirinda, 7UP, the zero-sugar
@@ -76,11 +111,22 @@ path to re-enable it — and puts the manual number field right there. The scann
 library is vendored in `vendor/`, so scanning keeps working offline and doesn't
 depend on a CDN. It only loads the first time you tap Scan.
 
-**Arabic product names.** Gulf barcodes often come back Arabic-only. The app asks
-Open Food Facts for the English fields first (`product_name_en`, then
-`generic_name_en`). If there's still no English name, the portion sheet says so
-and offers **Rename** — the name you type is stored against that barcode, so
-every future scan of that product uses your name.
+**Non-English product names.** Gulf barcodes often come back Arabic-only, and a
+text search reaches the whole database, so Cyrillic, Chinese, Thai and Hebrew
+names turn up just as readily. The app asks Open Food Facts for the English
+fields first (`product_name_en`, then `generic_name_en`) — but those are
+crowd-entered and regularly hold Arabic anyway, so **every** candidate is
+script-checked rather than trusted by its field name. There are live products
+where `product_name_en` is pure Arabic; those fall through to the next candidate.
+
+If nothing readable is left, the row is tagged **rename** in the results, the
+portion sheet says why, and **Rename** stores your name against that barcode
+forever. This applies identically to barcode scans and text searches — same
+products, same treatment.
+
+One honest limit: script is detectable in a few lines of code, language is not.
+"Lait fermenté" and "leche fermentada" are Latin script and pass the check. They
+get the Rename button like anything else, but the app will not flag them for you.
 
 **Burn & balance.** Log a reading whenever you like — you type the **cumulative**
 total Apple Health is showing and never work out a difference yourself.
@@ -432,7 +478,8 @@ you'll paste that in again on a new device.
 |---|---|
 | `index.html` | All markup — six tabs and the bottom sheets |
 | `styles.css` | Mobile-first styling, automatic light/dark |
-| `foods.js` | The seeded food database + its micronutrient table |
+| `foods.js` | The built-in food database + its micronutrient table |
+| `regions/` | North Indian, Pakistani and Filipino libraries, fetched on demand |
 | `app.js` | All logic — storage, search, OFF lookups, totals, water, scanning, AI, the nutrition engine |
 | `vendor/` | html5-qrcode, committed so scanning works offline |
 | `sw.js` | Service worker; caches the app shell for offline use |

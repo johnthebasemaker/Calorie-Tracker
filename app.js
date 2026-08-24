@@ -10,6 +10,7 @@ const KEY = {
   cust:  'ct.custom.v1',    // target keys edited by hand; recalculation asks first
   wx:    'ct.weather.v1',   // last good forecast, so a flight or a dead link still works
   work:  'ct.workout.v1',   // focus, custom times, and which exercises got done when
+  regs:  'ct.regions.v1',   // which region libraries are switched on
   foods: 'ct.foods.v1',
   log:   'ct.entries.v1',
   water: 'ct.water.v1',
@@ -644,6 +645,101 @@ function workoutDue() {
   return passed.length ? passed[0] : null;
 }
 
+/* =====================================================================
+   REGION LIBRARIES
+
+   Five curated cuisines, independently toggleable — someone here might eat
+   South Indian, Gulf and Filipino food in the same week, so these stack
+   rather than being one exclusive mode.
+
+   South Indian and Saudi/Gulf ship inside foods.js because they were the
+   original library. The other three live in regions/*.json and are fetched
+   the first time they are switched on, then kept in localStorage — after
+   that, toggling is instant and needs no network.
+
+   Measured, so the tradeoff is on the record: the three files together are
+   7 KB gzipped, against 367 KB for the barcode scanner that already ships.
+   Lazy loading is not what makes this app fast today; it is what stops the
+   tenth region from being the thing that slows it down.
+
+   Basics that belong to no cuisine — oils, drinks, protein staples — are
+   never hidden by a toggle. */
+
+const REGIONS = [
+  { k: 'si',   label: 'South Indian', sub: 'Tamil Nadu and Kerala',
+    builtin: true, groups: ['South Indian', 'Indian Non-Veg'] },
+  { k: 'gulf', label: 'Saudi / Gulf', sub: 'kabsa, mandi, shawarma',
+    builtin: true, groups: ['Saudi / Gulf'] },
+  { k: 'ni',   label: 'North Indian', sub: 'dal makhani, paneer, naan',
+    file: 'regions/north-indian.json' },
+  { k: 'pk',   label: 'Pakistani',    sub: 'nihari, haleem, karahi',
+    file: 'regions/pakistani.json' },
+  { k: 'ph',   label: 'Filipino',     sub: 'adobo, sinigang, pancit',
+    file: 'regions/filipino.json' },
+];
+
+const DEFAULT_REGIONS = { si: true, gulf: true, ni: false, pk: false, ph: false };
+
+const regionCacheKey = k => 'ct.region.' + k + '.v1';
+const regionOn = k => !!(state.regions && state.regions[k]);
+const regionByKey = k => REGIONS.find(r => r.k === k);
+
+/* Which toggle a built-in seed food answers to. Anything outside the mapped
+   groups is a shared basic and is always shown. */
+function regionOfSeed(f) {
+  for (const r of REGIONS) {
+    if (r.builtin && r.groups.includes(f.g)) return r.k;
+  }
+  return null;
+}
+
+/* Loaded region foods, keyed by region. Filled from cache or network. */
+const regionFoods = {};
+
+function regionFoodsFrom(key, payload) {
+  const list = (payload && Array.isArray(payload.foods)) ? payload.foods : [];
+  return list.map(f => Object.assign({}, f, {
+    id: 'r:' + key + ':' + slugify(f.n),
+    src: 'region',
+    region: key,
+  }));
+}
+
+/* Cache first, network only when there is nothing cached. A region fetched
+   once works offline forever, which is the whole point of caching it. */
+async function loadRegion(key) {
+  if (regionFoods[key]) return regionFoods[key];
+
+  const cached = readJSON(regionCacheKey(key), null);
+  if (cached && Array.isArray(cached.foods) && cached.foods.length) {
+    regionFoods[key] = regionFoodsFrom(key, cached);
+    return regionFoods[key];
+  }
+
+  const meta = regionByKey(key);
+  if (!meta || !meta.file) return [];
+
+  const res = await fetch(meta.file, { cache: 'no-cache' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const payload = await res.json();
+  if (!payload || !Array.isArray(payload.foods) || !payload.foods.length) {
+    throw new Error('empty region file');
+  }
+  writeJSON(regionCacheKey(key), payload);
+  regionFoods[key] = regionFoodsFrom(key, payload);
+  return regionFoods[key];
+}
+
+const regionCached = k => !!(regionFoods[k] || readJSON(regionCacheKey(k), null));
+
+/* Warm whatever is already switched on, without blocking first paint. */
+function loadEnabledRegions() {
+  return Promise.all(REGIONS.filter(r => r.file && regionOn(r.k))
+    .map(r => loadRegion(r.k).catch(err => {
+      console.warn('[Macros] region', r.k, 'failed to load:', err.message);
+    })));
+}
+
 const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -662,6 +758,7 @@ const state = {
   burn:    [],          // { id, d, cp, cum, ts }
   advice:  {},          // "YYYY-MM-DD:cpKey" -> { text, model, ts }
   workout: { focus: null, times: [], log: {} },
+  regions: { ...DEFAULT_REGIONS },
   date:    todayStr(),
   weekStart: mondayOf(todayStr()),
 };
@@ -690,6 +787,8 @@ function load() {
      the default — and a data wipe, which reloads from the same default, hands
      the old history straight back. Same trap for the times array. */
   const savedWork = readJSON(KEY.work, {}) || {};
+  state.regions = Object.assign({}, DEFAULT_REGIONS, readJSON(KEY.regs, {}) || {});
+
   state.workout = {
     focus: savedWork.focus || null,
     times: Array.isArray(savedWork.times) && savedWork.times.length
@@ -733,6 +832,7 @@ const saveCustomTargets = () => writeJSON(KEY.cust, state.customTargets);
 const saveWeather = () => writeJSON(KEY.wx, state.weather);
 
 const saveWorkout = () => writeJSON(KEY.work, state.workout);
+const saveRegions = () => writeJSON(KEY.regs, state.regions);
 const saveFoods   = () => writeJSON(KEY.foods, state.custom);
 const saveEntries = () => writeJSON(KEY.log, state.entries);
 const saveWater   = () => writeJSON(KEY.water, state.water);
@@ -810,8 +910,27 @@ const microFmt = (v, m) => (typeof v === 'number' ? (m.dp ? r1(v) : r0(v)).toLoc
 /* Merge seed foods with user foods. A user record with a seed id overrides it. */
 function allFoods() {
   const map = new Map();
-  SEED_FOODS.forEach(f => map.set(f.id, f));
-  state.custom.forEach(f => map.set(f.id, Object.assign({}, map.get(f.id) || {}, f)));
+
+  SEED_FOODS.forEach(f => {
+    const r = regionOfSeed(f);
+    if (r === null || regionOn(r)) map.set(f.id, f);
+  });
+
+  Object.keys(regionFoods).forEach(k => {
+    if (!regionOn(k)) return;
+    regionFoods[k].forEach(f => map.set(f.id, f));
+  });
+
+  /* A custom record for a food whose region is off is an override of
+     something hidden, so it stays hidden too — otherwise switching a region
+     off would leave behind exactly the foods you had bothered to correct.
+     Your own foods (usr:) and barcode saves (off:) are never region-bound. */
+  state.custom.forEach(f => {
+    const owner = String(f.id).startsWith('r:') ? String(f.id).split(':')[1] : null;
+    if (owner && !regionOn(owner)) return;
+    map.set(f.id, Object.assign({}, map.get(f.id) || {}, f));
+  });
+
   return Array.from(map.values());
 }
 const foodById = id => allFoods().find(f => f.id === id);
@@ -1644,7 +1763,7 @@ function openPortion({ mode, food, entry, grams }) {
      only place Arabic-only names come from. */
   const code = barcodeOf(f.id);
   $('#psRename').classList.toggle('hidden', !code);
-  $('#psArabicNote').classList.toggle('hidden', !(code && hasArabic(f.n)));
+  $('#psArabicNote').classList.toggle('hidden', !(code && hasNonLatin(f.n)));
   hideRenameRow();
 
   const start = grams != null ? grams
@@ -1767,6 +1886,30 @@ function deleteEntry() {
    Built from a string so the source file stays plain ASCII. */
 const ARABIC_RE = new RegExp('[\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF\\uFE70-\\uFEFF]');
 const hasArabic = s => ARABIC_RE.test(String(s));
+
+/* Arabic was the only script that mattered while this was barcode-only in a
+   Gulf shop. Text search reaches the whole database, so a Cyrillic, Chinese,
+   Thai or Hebrew name turns up just as easily and is just as unreadable here.
+
+   Script is detectable; language is not. "Lait fermenté" and "leche
+   fermentada" are Latin script and sail through this check — there is no
+   honest way to spot those in a few lines of client code, so they are left
+   to the Rename button rather than guessed at. */
+const NON_LATIN_RE = new RegExp('[' + [
+  '\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF',  // Arabic
+  '\u0590-\u05FF',                                              // Hebrew
+  '\u0400-\u04FF',                                              // Cyrillic
+  '\u0370-\u03FF',                                              // Greek
+  '\u0900-\u097F',                                              // Devanagari
+  '\u0980-\u09FF',                                              // Bengali
+  '\u0B80-\u0BFF',                                              // Tamil
+  '\u0E00-\u0E7F',                                              // Thai
+  '\u4E00-\u9FFF\u3400-\u4DBF',                               // CJK
+  '\u3040-\u30FF',                                              // Kana
+  '\uAC00-\uD7AF',                                              // Hangul
+].join('') + ']');
+
+const hasNonLatin = s => NON_LATIN_RE.test(String(s));
 const barcodeOf = id => (String(id).startsWith('off:') ? String(id).slice(4) : null);
 
 function showRenameRow() {
@@ -1961,6 +2104,8 @@ function foodRow(f, onClick, subOverride) {
   const b = document.createElement('button');
   b.className = 'row';
   const tag = (f.ai ? '<span class="tag ai">AI</span>' : '')
+            + (f.est ? '<span class="tag est" title="Estimated from a standard recipe, not a published table">EST</span>' : '')
+            + (f.needsRename ? '<span class="tag rename">rename</span>' : '')
             + (f.src === 'user' ? '<span class="tag mine">mine</span>'
              : f.src === 'off'  ? '<span class="tag off">packaged</span>' : '');
   b.innerHTML = `
@@ -1986,8 +2131,10 @@ function pickEnglishName(p) {
   const mine = state.names[p.code];
   if (mine) return { name: mine, needsRename: false };
 
+  /* The _en fields are crowd-entered and regularly hold Arabic anyway, so
+     every candidate is script-checked rather than trusted by its field name. */
   const candidates = [p.product_name_en, p.generic_name_en, p.product_name, p.generic_name];
-  const english = candidates.find(n => n && n.trim() && !hasArabic(n));
+  const english = candidates.find(n => n && n.trim() && !hasNonLatin(n));
   if (english) return { name: english.trim(), needsRename: false };
 
   const any = candidates.find(n => n && n.trim());
@@ -2145,6 +2292,9 @@ function paintOFF(items) {
   items.forEach(f => list.appendChild(foodRow(f, () => {
     rememberOffFood(f);
     openPortion({ mode: 'add', food: f });
+    /* The barcode path has always said this; a text search hits exactly the
+       same products and deserves the same prompt. */
+    if (f.needsRename) toast('No English name on file — tap Rename');
   })));
 }
 
@@ -3751,6 +3901,12 @@ function renderWorkout() {
         toggleExercise(d, e.id);
         renderWorkout();
         renderWorkoutBanner();
+
+  /* Regions already switched on come from localStorage, so this resolves
+     immediately in the normal case and never blocks the first render. */
+  loadEnabledRegions().then(() => {
+    if (Object.keys(regionFoods).length) { renderAll(); renderLibrary(); }
+  });
         if (workoutComplete(d)) toast(`Session done · ${workoutStreak()} day streak`);
       };
       card.appendChild(row);
@@ -3777,6 +3933,94 @@ function renderWorkoutBanner() {
   $('#woBannerHint').textContent = `Today’s session is about ${sessionFor(activeFocus()).minutes} minutes. `
     + 'Tick exercises as you go; a part-finished session still counts.';
   banner.classList.remove('hidden');
+}
+
+/* ------------------------------ region toggles ------------------------------ */
+
+let regionBusy = null;
+
+function renderRegions() {
+  const list = $('#regionList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  REGIONS.forEach(r => {
+    const row = document.createElement('label');
+    row.className = 'toggle';
+    const on = regionOn(r.k);
+    const busy = regionBusy === r.k;
+
+    /* Say what the toggle will cost before it is tapped: nothing at all for
+       a built-in or an already-cached region, one small download otherwise. */
+    const state_ = r.builtin ? 'built in'
+      : busy ? 'downloading…'
+      : regionCached(r.k) ? 'saved on this device'
+      : 'downloads once, ~3 KB';
+
+    row.innerHTML = `
+      <span><b>${escapeHtml(r.label)}</b><small>${r.sub} · ${state_}</small></span>
+      <input type="checkbox"${on ? ' checked' : ''}${busy ? ' disabled' : ''}><i></i>`;
+
+    row.querySelector('input').onchange = e => setRegion(r.k, e.target.checked, e.target);
+    list.appendChild(row);
+  });
+
+  const err = document.createElement('p');
+  err.className = 'hint';
+  err.id = 'regionErr';
+  if (regionError) { err.textContent = regionError; err.style.color = 'var(--over)'; }
+  list.appendChild(err);
+}
+
+let regionError = '';
+
+async function setRegion(key, want, input) {
+  regionError = '';
+
+  if (!want) {
+    state.regions[key] = false;
+    saveRegions();
+    renderRegions();
+    refreshAfterRegionChange();
+    toast(regionByKey(key).label + ' hidden — nothing deleted');
+    return;
+  }
+
+  const meta = regionByKey(key);
+  if (meta.builtin || regionCached(key)) {
+    state.regions[key] = true;
+    saveRegions();
+    renderRegions();
+    refreshAfterRegionChange();
+    toast(meta.label + ' added');
+    return;
+  }
+
+  /* First time on: this is the one moment a region needs the network. */
+  regionBusy = key;
+  renderRegions();
+  try {
+    const foods = await loadRegion(key);
+    state.regions[key] = true;
+    saveRegions();
+    toast(`${meta.label} added — ${foods.length} dishes, saved for offline`);
+  } catch (err) {
+    state.regions[key] = false;
+    regionError = navigator.onLine === false
+      ? `${meta.label} needs one download and this device is offline. Connect once and try again — after that it works with no signal.`
+      : `Could not download ${meta.label} (${err.message}). Check your connection and try again.`;
+    console.warn('[Macros] region download failed:', key, err);
+  } finally {
+    regionBusy = null;
+    renderRegions();
+    refreshAfterRegionChange();
+  }
+}
+
+function refreshAfterRegionChange() {
+  renderAll();
+  renderLibrary();
+  if (currentView === 'add') runSearch($('#searchInput').value);
 }
 
 /* ------------------------ workout times in Settings ------------------------ */
@@ -3860,6 +4104,7 @@ function renderSettings() {
   $('#aiKey').value = state.ai.key || '';
   $('#aiModel').value = state.ai.model || AI_DEFAULT_MODEL;
   renderAiStatus();
+  renderRegions();
   renderWorkoutTimes();
   checkTargetMath();
 }
@@ -3949,6 +4194,7 @@ function exportBackup() {
     burn: state.burn, advice: state.advice, features,
     profile: state.profile, customTargets: state.customTargets,
     workout: state.workout,
+    regions: state.regions,
     ai: { model: state.ai.model },
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -3993,6 +4239,7 @@ function importBackup(file) {
         focus: Array.isArray(d.profile.focus) ? d.profile.focus.slice() : [],
       });
       if (Array.isArray(d.customTargets)) state.customTargets = d.customTargets.slice();
+      if (d.regions) state.regions = Object.assign({}, DEFAULT_REGIONS, d.regions);
       if (d.workout) {
         state.workout = {
           focus: d.workout.focus || state.workout.focus || null,
@@ -4007,7 +4254,8 @@ function importBackup(file) {
       }
 
       saveFoods(); saveEntries(); saveWater(); saveBurn(); saveNames(); saveAdvice();
-      saveTargets(); saveAi(); saveProfile(); saveCustomTargets(); saveWorkout();
+      saveTargets(); saveAi(); saveProfile(); saveCustomTargets(); saveWorkout(); saveRegions();
+      loadEnabledRegions().then(() => { renderAll(); renderLibrary(); });
       renderAll(); renderLibrary(); renderSettings();
       toast('Backup imported');
     } catch (e) {

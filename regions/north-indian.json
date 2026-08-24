@@ -1,0 +1,932 @@
+{
+ "key": "north-indian",
+ "label": "North Indian",
+ "version": 1,
+ "note": "Per 100 g as eaten. Composite dishes are marked est:1 — derived from a standard home recipe rather than read off a published entry for the finished dish. Base ingredient values from IFCT 2017 (NIN Hyderabad) and USDA FoodData Central.",
+ "foods": [
+  {
+   "n": "Dal Makhani",
+   "g": "North Indian",
+   "kcal": 168,
+   "p": 6.0,
+   "c": 14.0,
+   "f": 9.5,
+   "a": "black dal urad rajma creamy",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 5.5,
+   "sg": 1.8,
+   "as": 0,
+   "na": 340,
+   "ch": 18,
+   "ca": 60,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Dal Tadka",
+   "g": "North Indian",
+   "kcal": 118,
+   "p": 5.5,
+   "c": 15.0,
+   "f": 3.8,
+   "a": "yellow dal tempered arhar",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 4.4,
+   "sg": 1.4,
+   "as": 0,
+   "na": 330,
+   "ch": 4,
+   "ca": 30,
+   "fe": 1.9,
+   "est": 1
+  },
+  {
+   "n": "Rajma Masala",
+   "g": "North Indian",
+   "kcal": 128,
+   "p": 5.8,
+   "c": 17.0,
+   "f": 3.8,
+   "a": "kidney bean curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 6.0,
+   "sg": 2.4,
+   "as": 0,
+   "na": 330,
+   "ch": 0,
+   "ca": 55,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Chole / Chana Masala",
+   "g": "North Indian",
+   "kcal": 148,
+   "p": 6.2,
+   "c": 19.0,
+   "f": 5.2,
+   "a": "chickpea curry chana",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 6.4,
+   "sg": 3.2,
+   "as": 0,
+   "na": 400,
+   "ch": 0,
+   "ca": 60,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Palak Paneer",
+   "g": "North Indian",
+   "kcal": 168,
+   "p": 8.5,
+   "c": 6.0,
+   "f": 12.5,
+   "a": "spinach paneer saag",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.4,
+   "sg": 2.0,
+   "as": 0,
+   "na": 380,
+   "ch": 25,
+   "ca": 225,
+   "fe": 2.3,
+   "est": 1
+  },
+  {
+   "n": "Matar Paneer",
+   "g": "North Indian",
+   "kcal": 172,
+   "p": 7.8,
+   "c": 9.5,
+   "f": 11.5,
+   "a": "peas paneer",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.8,
+   "sg": 3.4,
+   "as": 0.6,
+   "na": 360,
+   "ch": 22,
+   "ca": 190,
+   "fe": 1.6,
+   "est": 1
+  },
+  {
+   "n": "Kadai Paneer",
+   "g": "North Indian",
+   "kcal": 186,
+   "p": 8.2,
+   "c": 8.0,
+   "f": 14.0,
+   "a": "karahi paneer",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.6,
+   "sg": 3.2,
+   "as": 0.5,
+   "na": 390,
+   "ch": 26,
+   "ca": 200,
+   "fe": 1.5,
+   "est": 1
+  },
+  {
+   "n": "Shahi Paneer",
+   "g": "North Indian",
+   "kcal": 222,
+   "p": 7.8,
+   "c": 10.0,
+   "f": 17.0,
+   "a": "mughlai paneer cream",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.8,
+   "sg": 5.0,
+   "as": 2.0,
+   "na": 360,
+   "ch": 38,
+   "ca": 205,
+   "fe": 1.3,
+   "est": 1
+  },
+  {
+   "n": "Paneer Tikka",
+   "g": "North Indian",
+   "kcal": 215,
+   "p": 15.0,
+   "c": 6.0,
+   "f": 15.0,
+   "a": "grilled paneer skewer",
+   "u": [
+    {
+     "l": "4 pieces",
+     "g": 120
+    }
+   ],
+   "fb": 1.4,
+   "sg": 3.0,
+   "as": 0.4,
+   "na": 420,
+   "ch": 45,
+   "ca": 300,
+   "fe": 1.1,
+   "est": 1
+  },
+  {
+   "n": "Malai Kofta",
+   "g": "North Indian",
+   "kcal": 248,
+   "p": 6.5,
+   "c": 14.0,
+   "f": 18.5,
+   "a": "kofta cream curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.0,
+   "sg": 4.5,
+   "as": 1.5,
+   "na": 390,
+   "ch": 32,
+   "ca": 180,
+   "fe": 1.5,
+   "est": 1
+  },
+  {
+   "n": "Aloo Gobi",
+   "g": "North Indian",
+   "kcal": 108,
+   "p": 2.6,
+   "c": 12.5,
+   "f": 5.6,
+   "a": "potato cauliflower",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 3.2,
+   "sg": 2.4,
+   "as": 0,
+   "na": 300,
+   "ch": 0,
+   "ca": 40,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Bhindi Masala",
+   "g": "North Indian",
+   "kcal": 118,
+   "p": 2.0,
+   "c": 9.0,
+   "f": 8.4,
+   "a": "okra ladyfinger",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 150
+    }
+   ],
+   "fb": 3.6,
+   "sg": 2.6,
+   "as": 0,
+   "na": 310,
+   "ch": 0,
+   "ca": 78,
+   "fe": 0.8,
+   "est": 1
+  },
+  {
+   "n": "Baingan Bharta",
+   "g": "North Indian",
+   "kcal": 112,
+   "p": 2.0,
+   "c": 9.5,
+   "f": 7.6,
+   "a": "smoked aubergine eggplant",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 3.4,
+   "sg": 4.0,
+   "as": 0,
+   "na": 320,
+   "ch": 0,
+   "ca": 32,
+   "fe": 0.5,
+   "est": 1
+  },
+  {
+   "n": "Mixed Veg Curry",
+   "g": "North Indian",
+   "kcal": 104,
+   "p": 2.8,
+   "c": 10.5,
+   "f": 5.6,
+   "a": "sabzi vegetable",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 3.4,
+   "sg": 3.2,
+   "as": 0,
+   "na": 310,
+   "ch": 0,
+   "ca": 48,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Sarson ka Saag",
+   "g": "North Indian",
+   "kcal": 98,
+   "p": 3.6,
+   "c": 7.0,
+   "f": 6.2,
+   "a": "mustard greens punjabi",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 3.8,
+   "sg": 1.6,
+   "as": 0,
+   "na": 300,
+   "ch": 4,
+   "ca": 165,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Dum Aloo",
+   "g": "North Indian",
+   "kcal": 148,
+   "p": 2.4,
+   "c": 16.0,
+   "f": 8.4,
+   "a": "kashmiri potato curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.6,
+   "sg": 3.0,
+   "as": 0.4,
+   "na": 330,
+   "ch": 6,
+   "ca": 45,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Kadhi Pakora",
+   "g": "North Indian",
+   "kcal": 124,
+   "p": 4.2,
+   "c": 9.5,
+   "f": 7.6,
+   "a": "yogurt gram flour curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.4,
+   "sg": 3.2,
+   "as": 0,
+   "na": 350,
+   "ch": 8,
+   "ca": 95,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Naan (plain)",
+   "g": "North Indian",
+   "kcal": 310,
+   "p": 8.8,
+   "c": 52.0,
+   "f": 7.2,
+   "a": "tandoori bread",
+   "u": [
+    {
+     "l": "1 naan",
+     "g": 90
+    }
+   ],
+   "fb": 2.2,
+   "sg": 4.5,
+   "as": 3.0,
+   "na": 430,
+   "ch": 3,
+   "ca": 68,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Butter Naan",
+   "g": "North Indian",
+   "kcal": 348,
+   "p": 8.5,
+   "c": 50.0,
+   "f": 12.0,
+   "a": "tandoori bread butter",
+   "u": [
+    {
+     "l": "1 naan",
+     "g": 95
+    }
+   ],
+   "fb": 2.1,
+   "sg": 4.4,
+   "as": 3.0,
+   "na": 440,
+   "ch": 18,
+   "ca": 66,
+   "fe": 2.5,
+   "est": 1
+  },
+  {
+   "n": "Tandoori Roti",
+   "g": "North Indian",
+   "kcal": 268,
+   "p": 8.4,
+   "c": 52.0,
+   "f": 3.0,
+   "a": "tandoor wheat bread",
+   "u": [
+    {
+     "l": "1 roti",
+     "g": 70
+    }
+   ],
+   "fb": 6.0,
+   "sg": 1.2,
+   "as": 0,
+   "na": 300,
+   "ch": 0,
+   "ca": 30,
+   "fe": 2.8,
+   "est": 1
+  },
+  {
+   "n": "Aloo Paratha",
+   "g": "North Indian",
+   "kcal": 268,
+   "p": 5.4,
+   "c": 36.0,
+   "f": 11.0,
+   "a": "stuffed potato flatbread",
+   "u": [
+    {
+     "l": "1 paratha",
+     "g": 120
+    }
+   ],
+   "fb": 4.0,
+   "sg": 1.6,
+   "as": 0,
+   "na": 330,
+   "ch": 2,
+   "ca": 42,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Plain Paratha",
+   "g": "North Indian",
+   "kcal": 326,
+   "p": 7.0,
+   "c": 42.0,
+   "f": 14.0,
+   "a": "laccha flaky flatbread",
+   "u": [
+    {
+     "l": "1 paratha",
+     "g": 80
+    }
+   ],
+   "fb": 4.4,
+   "sg": 1.4,
+   "as": 0,
+   "na": 280,
+   "ch": 4,
+   "ca": 38,
+   "fe": 2.4,
+   "est": 1
+  },
+  {
+   "n": "Missi Roti",
+   "g": "North Indian",
+   "kcal": 288,
+   "p": 9.6,
+   "c": 44.0,
+   "f": 8.0,
+   "a": "gram flour roti besan",
+   "u": [
+    {
+     "l": "1 roti",
+     "g": 75
+    }
+   ],
+   "fb": 6.6,
+   "sg": 1.8,
+   "as": 0,
+   "na": 330,
+   "ch": 0,
+   "ca": 48,
+   "fe": 3.2,
+   "est": 1
+  },
+  {
+   "n": "Bhatura",
+   "g": "North Indian",
+   "kcal": 348,
+   "p": 7.4,
+   "c": 44.0,
+   "f": 16.0,
+   "a": "fried bread chole bhature",
+   "u": [
+    {
+     "l": "1 bhatura",
+     "g": 90
+    }
+   ],
+   "fb": 2.2,
+   "sg": 2.6,
+   "as": 1.2,
+   "na": 340,
+   "ch": 0,
+   "ca": 34,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Jeera Rice",
+   "g": "North Indian",
+   "kcal": 158,
+   "p": 3.0,
+   "c": 28.0,
+   "f": 3.8,
+   "a": "cumin rice",
+   "u": [
+    {
+     "l": "1 cup",
+     "g": 180
+    }
+   ],
+   "fb": 0.8,
+   "sg": 0.2,
+   "as": 0,
+   "na": 250,
+   "ch": 0,
+   "ca": 12,
+   "fe": 0.5,
+   "est": 1
+  },
+  {
+   "n": "Veg Pulao",
+   "g": "North Indian",
+   "kcal": 162,
+   "p": 3.4,
+   "c": 27.0,
+   "f": 4.6,
+   "a": "pulav vegetable rice",
+   "u": [
+    {
+     "l": "1 plate",
+     "g": 250
+    }
+   ],
+   "fb": 1.8,
+   "sg": 1.6,
+   "as": 0,
+   "na": 280,
+   "ch": 0,
+   "ca": 24,
+   "fe": 0.8,
+   "est": 1
+  },
+  {
+   "n": "Chicken Tikka Masala",
+   "g": "North Indian",
+   "kcal": 172,
+   "p": 13.5,
+   "c": 6.5,
+   "f": 10.5,
+   "a": "makhani gravy chicken",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.2,
+   "sg": 3.2,
+   "as": 0.8,
+   "na": 430,
+   "ch": 58,
+   "ca": 70,
+   "fe": 1.1,
+   "est": 1
+  },
+  {
+   "n": "Chicken Tikka (dry)",
+   "g": "North Indian",
+   "kcal": 186,
+   "p": 24.0,
+   "c": 3.0,
+   "f": 8.6,
+   "a": "grilled chicken skewer",
+   "u": [
+    {
+     "l": "4 pieces",
+     "g": 120
+    }
+   ],
+   "fb": 0.6,
+   "sg": 2.0,
+   "as": 0.4,
+   "na": 470,
+   "ch": 82,
+   "ca": 50,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Chicken Korma",
+   "g": "North Indian",
+   "kcal": 196,
+   "p": 13.0,
+   "c": 7.0,
+   "f": 13.0,
+   "a": "creamy nut curry",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.2,
+   "sg": 3.4,
+   "as": 0.6,
+   "na": 400,
+   "ch": 62,
+   "ca": 72,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Rogan Josh",
+   "g": "North Indian",
+   "kcal": 208,
+   "p": 15.0,
+   "c": 4.5,
+   "f": 14.5,
+   "a": "kashmiri mutton lamb",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 1.0,
+   "sg": 2.2,
+   "as": 0,
+   "na": 420,
+   "ch": 72,
+   "ca": 42,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Keema Matar",
+   "g": "North Indian",
+   "kcal": 218,
+   "p": 15.5,
+   "c": 6.5,
+   "f": 14.5,
+   "a": "minced mutton peas",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 180
+    }
+   ],
+   "fb": 2.2,
+   "sg": 2.4,
+   "as": 0,
+   "na": 400,
+   "ch": 64,
+   "ca": 34,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Raita (cucumber)",
+   "g": "North Indian",
+   "kcal": 58,
+   "p": 2.6,
+   "c": 4.4,
+   "f": 3.2,
+   "a": "yogurt side dahi",
+   "u": [
+    {
+     "l": "1 small bowl",
+     "g": 100
+    }
+   ],
+   "fb": 0.5,
+   "sg": 3.6,
+   "as": 0,
+   "na": 240,
+   "ch": 8,
+   "ca": 92,
+   "fe": 0.1,
+   "est": 1
+  },
+  {
+   "n": "Boondi Raita",
+   "g": "North Indian",
+   "kcal": 96,
+   "p": 3.0,
+   "c": 8.6,
+   "f": 5.4,
+   "a": "yogurt gram boondi",
+   "u": [
+    {
+     "l": "1 small bowl",
+     "g": 100
+    }
+   ],
+   "fb": 0.4,
+   "sg": 3.4,
+   "as": 0,
+   "na": 300,
+   "ch": 8,
+   "ca": 88,
+   "fe": 0.4,
+   "est": 1
+  },
+  {
+   "n": "Samosa",
+   "g": "North Indian",
+   "kcal": 308,
+   "p": 5.0,
+   "c": 32.0,
+   "f": 17.5,
+   "a": "fried potato pastry",
+   "u": [
+    {
+     "l": "1 samosa",
+     "g": 60
+    }
+   ],
+   "fb": 3.0,
+   "sg": 1.8,
+   "as": 0,
+   "na": 400,
+   "ch": 0,
+   "ca": 30,
+   "fe": 1.6,
+   "est": 1
+  },
+  {
+   "n": "Pakora / Bhaji",
+   "g": "North Indian",
+   "kcal": 288,
+   "p": 7.0,
+   "c": 26.0,
+   "f": 17.0,
+   "a": "fritters onion bhajji",
+   "u": [
+    {
+     "l": "1 plate",
+     "g": 100
+    }
+   ],
+   "fb": 4.0,
+   "sg": 2.0,
+   "as": 0,
+   "na": 380,
+   "ch": 0,
+   "ca": 42,
+   "fe": 2.2,
+   "est": 1
+  },
+  {
+   "n": "Aloo Tikki",
+   "g": "North Indian",
+   "kcal": 198,
+   "p": 3.2,
+   "c": 26.0,
+   "f": 9.0,
+   "a": "potato patty chaat",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 120
+    }
+   ],
+   "fb": 2.6,
+   "sg": 1.4,
+   "as": 0,
+   "na": 360,
+   "ch": 0,
+   "ca": 24,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Lassi (sweet)",
+   "g": "North Indian",
+   "kcal": 98,
+   "p": 2.8,
+   "c": 15.0,
+   "f": 2.6,
+   "a": "yogurt drink",
+   "u": [
+    {
+     "l": "1 glass",
+     "g": 250
+    }
+   ],
+   "fb": 0,
+   "sg": 14.5,
+   "as": 9.0,
+   "na": 50,
+   "ch": 9,
+   "ca": 100,
+   "fe": 0.1,
+   "est": 1
+  },
+  {
+   "n": "Gulab Jamun",
+   "g": "North Indian",
+   "kcal": 320,
+   "p": 4.4,
+   "c": 45.0,
+   "f": 13.5,
+   "a": "syrup dessert",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 40
+    },
+    {
+     "l": "2 pieces",
+     "g": 80
+    }
+   ],
+   "fb": 0.3,
+   "sg": 38.0,
+   "as": 34.0,
+   "na": 60,
+   "ch": 12,
+   "ca": 120,
+   "fe": 0.6,
+   "est": 1
+  },
+  {
+   "n": "Jalebi",
+   "g": "North Indian",
+   "kcal": 368,
+   "p": 2.0,
+   "c": 62.0,
+   "f": 12.5,
+   "a": "fried syrup sweet",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 25
+    }
+   ],
+   "fb": 0.2,
+   "sg": 52.0,
+   "as": 50.0,
+   "na": 45,
+   "ch": 0,
+   "ca": 20,
+   "fe": 0.7,
+   "est": 1
+  },
+  {
+   "n": "Kheer / Rice Pudding",
+   "g": "North Indian",
+   "kcal": 148,
+   "p": 3.8,
+   "c": 22.0,
+   "f": 4.8,
+   "a": "payasam milk rice sweet",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 150
+    }
+   ],
+   "fb": 0.3,
+   "sg": 17.0,
+   "as": 12.0,
+   "na": 55,
+   "ch": 15,
+   "ca": 120,
+   "fe": 0.3,
+   "est": 1
+  }
+ ]
+}

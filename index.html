@@ -350,6 +350,18 @@
       <button class="wide ghost" id="resetTargets">Reset all targets to the defaults</button>
     </div>
 
+    <h2 class="sect">Food regions</h2>
+    <div class="card form">
+      <p class="hint">Switch on the cuisines you actually eat — they stack, so South Indian,
+        Gulf and Filipino can all be on at once. A region is downloaded the first time you
+        switch it on and then kept on this device, so switching it back on later is instant
+        and works with no signal. Switching one off hides its foods from search; nothing you
+        have logged is affected.</p>
+      <div id="regionList"></div>
+      <p class="hint">Anything outside these five still works: search Open Food Facts, estimate
+        it with AI, or add it by hand — once saved it is in your library permanently.</p>
+    </div>
+
     <h2 class="sect">Workout reminders</h2>
     <div class="card form">
       <p class="hint">There is no server, so nothing can be pushed to your phone. These times are
@@ -417,7 +429,7 @@
     <input type="text" id="psRenameInput" autocapitalize="words" placeholder="English name">
     <button id="psRenameSave">Save</button>
   </div>
-  <p class="arabicnote hidden" id="psArabicNote">No English name on file for this barcode. Rename it once and future scans will use your name.</p>
+  <p class="arabicnote hidden" id="psArabicNote">No English name on file for this product. Rename it once and every future scan or search will use your name.</p>
   <p class="psmeta" id="psMeta"></p>
 
   <div class="gramrow">

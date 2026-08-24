@@ -1,0 +1,919 @@
+{
+ "key": "filipino",
+ "label": "Filipino",
+ "version": 1,
+ "note": "Per 100 g as eaten. Dishes with a direct entry in the FNRI Philippine Food Composition Tables are unmarked; the rest carry est:1, meaning the numbers were derived from a standard recipe using USDA FoodData Central ingredient values rather than read off a published entry for the finished dish.",
+ "foods": [
+  {
+   "n": "Chicken Adobo",
+   "g": "Filipino",
+   "kcal": 229,
+   "p": 17.0,
+   "c": 2.4,
+   "f": 16.5,
+   "a": "adobong manok soy vinegar",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 0.2,
+   "sg": 0.8,
+   "as": 0.3,
+   "na": 720,
+   "ch": 72,
+   "ca": 18,
+   "fe": 1.2
+  },
+  {
+   "n": "Pork Adobo",
+   "g": "Filipino",
+   "kcal": 282,
+   "p": 15.0,
+   "c": 2.2,
+   "f": 23.5,
+   "a": "adobong baboy soy vinegar",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 0.2,
+   "sg": 0.8,
+   "as": 0.3,
+   "na": 700,
+   "ch": 68,
+   "ca": 16,
+   "fe": 1.1
+  },
+  {
+   "n": "Sinigang na Baboy",
+   "g": "Filipino",
+   "kcal": 98,
+   "p": 8.0,
+   "c": 3.6,
+   "f": 5.6,
+   "a": "sour tamarind pork soup",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 300
+    }
+   ],
+   "fb": 1.2,
+   "sg": 1.8,
+   "as": 0,
+   "na": 380,
+   "ch": 26,
+   "ca": 28,
+   "fe": 0.8
+  },
+  {
+   "n": "Sinigang na Hipon",
+   "g": "Filipino",
+   "kcal": 62,
+   "p": 8.4,
+   "c": 3.4,
+   "f": 1.6,
+   "a": "sour shrimp soup sampalok",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 300
+    }
+   ],
+   "fb": 1.2,
+   "sg": 1.8,
+   "as": 0,
+   "na": 400,
+   "ch": 62,
+   "ca": 56,
+   "fe": 0.9
+  },
+  {
+   "n": "Tinolang Manok",
+   "g": "Filipino",
+   "kcal": 92,
+   "p": 9.6,
+   "c": 3.4,
+   "f": 4.2,
+   "a": "chicken ginger papaya soup",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 300
+    }
+   ],
+   "fb": 0.8,
+   "sg": 1.2,
+   "as": 0,
+   "na": 340,
+   "ch": 38,
+   "ca": 22,
+   "fe": 0.7
+  },
+  {
+   "n": "Kare-Kare",
+   "g": "Filipino",
+   "kcal": 212,
+   "p": 11.5,
+   "c": 8.0,
+   "f": 15.5,
+   "a": "peanut oxtail stew",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 220
+    }
+   ],
+   "fb": 2.6,
+   "sg": 2.0,
+   "as": 0,
+   "na": 360,
+   "ch": 44,
+   "ca": 52,
+   "fe": 1.6,
+   "est": 1
+  },
+  {
+   "n": "Bulalo",
+   "g": "Filipino",
+   "kcal": 124,
+   "p": 10.5,
+   "c": 2.0,
+   "f": 8.2,
+   "a": "beef shank marrow soup",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 300
+    }
+   ],
+   "fb": 0.6,
+   "sg": 1.0,
+   "as": 0,
+   "na": 420,
+   "ch": 42,
+   "ca": 24,
+   "fe": 1.6,
+   "est": 1
+  },
+  {
+   "n": "Lechon Kawali",
+   "g": "Filipino",
+   "kcal": 398,
+   "p": 20.0,
+   "c": 0.4,
+   "f": 35.0,
+   "a": "crispy fried pork belly",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 150
+    }
+   ],
+   "fb": 0,
+   "sg": 0,
+   "as": 0,
+   "na": 520,
+   "ch": 92,
+   "ca": 14,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Crispy Pata",
+   "g": "Filipino",
+   "kcal": 382,
+   "p": 21.0,
+   "c": 0.6,
+   "f": 33.0,
+   "a": "fried pork knuckle",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 180
+    }
+   ],
+   "fb": 0,
+   "sg": 0,
+   "as": 0,
+   "na": 540,
+   "ch": 98,
+   "ca": 18,
+   "fe": 1.1,
+   "est": 1
+  },
+  {
+   "n": "Pork Sisig",
+   "g": "Filipino",
+   "kcal": 298,
+   "p": 18.0,
+   "c": 4.0,
+   "f": 23.0,
+   "a": "chopped pork face onion chilli",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 180
+    }
+   ],
+   "fb": 0.5,
+   "sg": 1.4,
+   "as": 0.4,
+   "na": 620,
+   "ch": 110,
+   "ca": 22,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Bicol Express",
+   "g": "Filipino",
+   "kcal": 232,
+   "p": 11.0,
+   "c": 5.0,
+   "f": 19.0,
+   "a": "pork coconut chilli",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 180
+    }
+   ],
+   "fb": 1.4,
+   "sg": 2.4,
+   "as": 0,
+   "na": 480,
+   "ch": 44,
+   "ca": 36,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Laing",
+   "g": "Filipino",
+   "kcal": 168,
+   "p": 3.6,
+   "c": 6.0,
+   "f": 15.0,
+   "a": "taro leaves coconut milk",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 150
+    }
+   ],
+   "fb": 2.8,
+   "sg": 1.6,
+   "as": 0,
+   "na": 400,
+   "ch": 4,
+   "ca": 96,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Pinakbet",
+   "g": "Filipino",
+   "kcal": 96,
+   "p": 3.4,
+   "c": 8.0,
+   "f": 6.0,
+   "a": "mixed vegetables bagoong",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 180
+    }
+   ],
+   "fb": 2.8,
+   "sg": 2.6,
+   "as": 0,
+   "na": 520,
+   "ch": 6,
+   "ca": 62,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Chopsuey",
+   "g": "Filipino",
+   "kcal": 104,
+   "p": 5.6,
+   "c": 7.4,
+   "f": 5.6,
+   "a": "stir fried vegetables",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 2.0,
+   "sg": 2.6,
+   "as": 0,
+   "na": 420,
+   "ch": 22,
+   "ca": 44,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Ginisang Munggo",
+   "g": "Filipino",
+   "kcal": 116,
+   "p": 7.4,
+   "c": 12.5,
+   "f": 3.8,
+   "a": "mung bean stew",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 250
+    }
+   ],
+   "fb": 4.4,
+   "sg": 1.2,
+   "as": 0,
+   "na": 380,
+   "ch": 12,
+   "ca": 42,
+   "fe": 2.0,
+   "est": 1
+  },
+  {
+   "n": "Menudo",
+   "g": "Filipino",
+   "kcal": 186,
+   "p": 11.5,
+   "c": 9.0,
+   "f": 11.5,
+   "a": "pork liver tomato stew",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.4,
+   "sg": 3.0,
+   "as": 0.6,
+   "na": 460,
+   "ch": 44,
+   "ca": 26,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Afritada",
+   "g": "Filipino",
+   "kcal": 162,
+   "p": 11.0,
+   "c": 9.5,
+   "f": 8.8,
+   "a": "chicken tomato potato stew",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.6,
+   "sg": 3.2,
+   "as": 0.5,
+   "na": 440,
+   "ch": 40,
+   "ca": 28,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Caldereta",
+   "g": "Filipino",
+   "kcal": 204,
+   "p": 12.5,
+   "c": 8.0,
+   "f": 13.5,
+   "a": "beef liver spread stew",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.4,
+   "sg": 3.0,
+   "as": 0.6,
+   "na": 470,
+   "ch": 48,
+   "ca": 42,
+   "fe": 1.8,
+   "est": 1
+  },
+  {
+   "n": "Mechado",
+   "g": "Filipino",
+   "kcal": 192,
+   "p": 13.0,
+   "c": 7.5,
+   "f": 12.0,
+   "a": "beef soy tomato stew",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.2,
+   "sg": 2.8,
+   "as": 0.5,
+   "na": 450,
+   "ch": 46,
+   "ca": 24,
+   "fe": 1.9,
+   "est": 1
+  },
+  {
+   "n": "Chicken Inasal",
+   "g": "Filipino",
+   "kcal": 182,
+   "p": 22.0,
+   "c": 2.0,
+   "f": 9.4,
+   "a": "grilled annatto chicken",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 180
+    }
+   ],
+   "fb": 0.2,
+   "sg": 1.6,
+   "as": 0.8,
+   "na": 480,
+   "ch": 84,
+   "ca": 20,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Pork BBQ Skewer",
+   "g": "Filipino",
+   "kcal": 236,
+   "p": 16.0,
+   "c": 9.0,
+   "f": 15.0,
+   "a": "barbecue stick sweet marinade",
+   "u": [
+    {
+     "l": "1 stick",
+     "g": 70
+    }
+   ],
+   "fb": 0.2,
+   "sg": 8.0,
+   "as": 7.0,
+   "na": 540,
+   "ch": 58,
+   "ca": 16,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Tocino",
+   "g": "Filipino",
+   "kcal": 282,
+   "p": 14.0,
+   "c": 20.0,
+   "f": 15.5,
+   "a": "sweet cured pork",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 100
+    }
+   ],
+   "fb": 0,
+   "sg": 18.5,
+   "as": 17.0,
+   "na": 760,
+   "ch": 62,
+   "ca": 14,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Longganisa",
+   "g": "Filipino",
+   "kcal": 326,
+   "p": 15.0,
+   "c": 10.0,
+   "f": 25.5,
+   "a": "filipino sausage",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 80
+    }
+   ],
+   "fb": 0,
+   "sg": 8.0,
+   "as": 7.5,
+   "na": 880,
+   "ch": 66,
+   "ca": 18,
+   "fe": 1.2,
+   "est": 1
+  },
+  {
+   "n": "Beef Tapa",
+   "g": "Filipino",
+   "kcal": 248,
+   "p": 24.0,
+   "c": 6.0,
+   "f": 14.0,
+   "a": "cured beef tapsilog",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 120
+    }
+   ],
+   "fb": 0,
+   "sg": 4.6,
+   "as": 4.0,
+   "na": 780,
+   "ch": 68,
+   "ca": 14,
+   "fe": 2.6,
+   "est": 1
+  },
+  {
+   "n": "Daing na Bangus",
+   "g": "Filipino",
+   "kcal": 212,
+   "p": 20.5,
+   "c": 0.6,
+   "f": 14.0,
+   "a": "marinated milkfish fried",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 180
+    }
+   ],
+   "fb": 0,
+   "sg": 0.2,
+   "as": 0,
+   "na": 620,
+   "ch": 64,
+   "ca": 84,
+   "fe": 1.6,
+   "est": 1
+  },
+  {
+   "n": "Inihaw na Bangus",
+   "g": "Filipino",
+   "kcal": 162,
+   "p": 20.0,
+   "c": 0.5,
+   "f": 8.8,
+   "a": "grilled milkfish",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 180
+    }
+   ],
+   "fb": 0,
+   "sg": 0.2,
+   "as": 0,
+   "na": 320,
+   "ch": 58,
+   "ca": 80,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Fried Tilapia",
+   "g": "Filipino",
+   "kcal": 178,
+   "p": 22.0,
+   "c": 0.4,
+   "f": 9.8,
+   "a": "pritong tilapia",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 150
+    }
+   ],
+   "fb": 0,
+   "sg": 0,
+   "as": 0,
+   "na": 340,
+   "ch": 62,
+   "ca": 22,
+   "fe": 0.8,
+   "est": 1
+  },
+  {
+   "n": "Pancit Canton",
+   "g": "Filipino",
+   "kcal": 184,
+   "p": 7.4,
+   "c": 25.0,
+   "f": 6.0,
+   "a": "stir fried egg noodles",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.8,
+   "sg": 2.4,
+   "as": 0.6,
+   "na": 620,
+   "ch": 22,
+   "ca": 26,
+   "fe": 1.4
+  },
+  {
+   "n": "Pancit Bihon",
+   "g": "Filipino",
+   "kcal": 168,
+   "p": 6.0,
+   "c": 26.0,
+   "f": 4.6,
+   "a": "rice vermicelli stir fry",
+   "u": [
+    {
+     "l": "1 serving",
+     "g": 200
+    }
+   ],
+   "fb": 1.4,
+   "sg": 2.0,
+   "as": 0.5,
+   "na": 600,
+   "ch": 18,
+   "ca": 22,
+   "fe": 1.1
+  },
+  {
+   "n": "Lumpiang Shanghai",
+   "g": "Filipino",
+   "kcal": 288,
+   "p": 12.0,
+   "c": 20.0,
+   "f": 18.0,
+   "a": "fried spring roll pork",
+   "u": [
+    {
+     "l": "3 pieces",
+     "g": 75
+    }
+   ],
+   "fb": 1.2,
+   "sg": 2.0,
+   "as": 0.6,
+   "na": 540,
+   "ch": 44,
+   "ca": 26,
+   "fe": 1.4,
+   "est": 1
+  },
+  {
+   "n": "Lumpiang Sariwa",
+   "g": "Filipino",
+   "kcal": 142,
+   "p": 4.6,
+   "c": 18.0,
+   "f": 5.6,
+   "a": "fresh vegetable roll",
+   "u": [
+    {
+     "l": "1 roll",
+     "g": 120
+    }
+   ],
+   "fb": 2.6,
+   "sg": 6.0,
+   "as": 3.0,
+   "na": 420,
+   "ch": 12,
+   "ca": 42,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Arroz Caldo",
+   "g": "Filipino",
+   "kcal": 92,
+   "p": 4.6,
+   "c": 13.5,
+   "f": 2.2,
+   "a": "chicken rice porridge lugaw",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 300
+    }
+   ],
+   "fb": 0.4,
+   "sg": 0.4,
+   "as": 0,
+   "na": 360,
+   "ch": 18,
+   "ca": 14,
+   "fe": 0.6,
+   "est": 1
+  },
+  {
+   "n": "Champorado",
+   "g": "Filipino",
+   "kcal": 128,
+   "p": 2.6,
+   "c": 24.0,
+   "f": 2.6,
+   "a": "chocolate rice porridge",
+   "u": [
+    {
+     "l": "1 bowl",
+     "g": 250
+    }
+   ],
+   "fb": 1.2,
+   "sg": 12.0,
+   "as": 10.0,
+   "na": 45,
+   "ch": 2,
+   "ca": 30,
+   "fe": 0.9,
+   "est": 1
+  },
+  {
+   "n": "Sinangag",
+   "g": "Filipino",
+   "kcal": 186,
+   "p": 3.4,
+   "c": 29.0,
+   "f": 6.0,
+   "a": "garlic fried rice",
+   "u": [
+    {
+     "l": "1 cup",
+     "g": 180
+    }
+   ],
+   "fb": 0.8,
+   "sg": 0.3,
+   "as": 0,
+   "na": 420,
+   "ch": 0,
+   "ca": 14,
+   "fe": 0.6,
+   "est": 1
+  },
+  {
+   "n": "Pandesal",
+   "g": "Filipino",
+   "kcal": 292,
+   "p": 8.6,
+   "c": 52.0,
+   "f": 5.6,
+   "a": "filipino bread roll",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 60
+    }
+   ],
+   "fb": 2.0,
+   "sg": 7.0,
+   "as": 6.0,
+   "na": 420,
+   "ch": 2,
+   "ca": 40,
+   "fe": 2.4
+  },
+  {
+   "n": "Ensaymada",
+   "g": "Filipino",
+   "kcal": 396,
+   "p": 7.4,
+   "c": 46.0,
+   "f": 20.0,
+   "a": "sweet brioche cheese butter",
+   "u": [
+    {
+     "l": "1 piece",
+     "g": 80
+    }
+   ],
+   "fb": 1.4,
+   "sg": 18.0,
+   "as": 16.5,
+   "na": 340,
+   "ch": 58,
+   "ca": 86,
+   "fe": 1.8,
+   "est": 1
+  },
+  {
+   "n": "Puto",
+   "g": "Filipino",
+   "kcal": 216,
+   "p": 4.4,
+   "c": 44.0,
+   "f": 2.6,
+   "a": "steamed rice cake",
+   "u": [
+    {
+     "l": "2 pieces",
+     "g": 70
+    }
+   ],
+   "fb": 0.6,
+   "sg": 18.0,
+   "as": 16.0,
+   "na": 180,
+   "ch": 8,
+   "ca": 62,
+   "fe": 0.6,
+   "est": 1
+  },
+  {
+   "n": "Bibingka",
+   "g": "Filipino",
+   "kcal": 238,
+   "p": 5.4,
+   "c": 36.0,
+   "f": 8.4,
+   "a": "rice coconut cake",
+   "u": [
+    {
+     "l": "1 slice",
+     "g": 100
+    }
+   ],
+   "fb": 1.0,
+   "sg": 17.0,
+   "as": 14.5,
+   "na": 280,
+   "ch": 42,
+   "ca": 74,
+   "fe": 1.0,
+   "est": 1
+  },
+  {
+   "n": "Leche Flan",
+   "g": "Filipino",
+   "kcal": 268,
+   "p": 6.4,
+   "c": 38.0,
+   "f": 10.0,
+   "a": "caramel custard",
+   "u": [
+    {
+     "l": "1 slice",
+     "g": 80
+    }
+   ],
+   "fb": 0,
+   "sg": 36.0,
+   "as": 30.0,
+   "na": 90,
+   "ch": 190,
+   "ca": 110,
+   "fe": 0.6
+  },
+  {
+   "n": "Halo-Halo",
+   "g": "Filipino",
+   "kcal": 142,
+   "p": 2.6,
+   "c": 26.0,
+   "f": 3.4,
+   "a": "shaved ice dessert",
+   "u": [
+    {
+     "l": "1 glass",
+     "g": 300
+    }
+   ],
+   "fb": 1.2,
+   "sg": 21.0,
+   "as": 17.0,
+   "na": 60,
+   "ch": 10,
+   "ca": 72,
+   "fe": 0.6,
+   "est": 1
+  }
+ ]
+}

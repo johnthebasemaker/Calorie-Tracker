@@ -506,6 +506,10 @@ button { font-family: inherit; cursor: pointer; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .tag.ai { background: color-mix(in srgb, var(--ai) 20%, transparent); color: var(--ai); }
+/* Numbers worked out from a recipe rather than read off a published table. */
+.tag.est { background: color-mix(in srgb, var(--short) 20%, transparent); color: var(--short); }
+/* A product Open Food Facts only has a non-English name for. */
+.tag.rename { background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--c); }
 
 /* --------------------------- rename in sheet --------------------------- */
 .psnamerow { display: flex; align-items: baseline; gap: 10px; }
