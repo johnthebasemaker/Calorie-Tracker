@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The brand palette, taken from the :root custom properties in styles.css so
+  the native shell and the web UI cannot drift apart. Light values here, dark
+  values in values-night/colors.xml.
+
+  Hand-written. Colours derived from the icon artwork live in
+  generated_icon_colors.xml, which scripts/android-assets.py overwrites.
+-->
+<resources>
+    <color name="colorPrimary">#1F7A4D</color>      <!-- css var: accent    -->
+    <color name="colorPrimaryDark">#14161A</color>  <!-- css var: text      -->
+    <color name="colorAccent">#2EA86A</color>       <!-- css var: accent-2  -->
+    <color name="appCanvas">#F4F5F7</color>         <!-- css var: bg        -->
+</resources>

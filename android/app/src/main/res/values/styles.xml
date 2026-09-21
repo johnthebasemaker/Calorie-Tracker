@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      DayNight, not Capacitor's default Theme.AppCompat.Light.DarkActionBar.
+
+      Measured rather than assumed: on the API 36 emulator the WebView honours
+      the system dark setting either way, so on a current Android this swap
+      changes nothing you can see. It is kept for two narrower reasons.
+
+      First, it is the correct description of the app. Every colour in
+      styles.css comes in a light and a dark form and follows the system, so a
+      host theme that says "this app is light" is simply false, and anything
+      native added later - a dialog, a share sheet - would inherit that lie.
+
+      Second, WebView only began following the system setting on its own in
+      recent versions. minSdk here is 24, where the app theme is what the
+      WebView had to be told by, so pinning to Light would take dark mode away
+      from exactly the oldest devices.
+    -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="colorPrimary">@color/colorPrimary</item>
+        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
+        <item name="colorAccent">@color/colorAccent</item>
+    </style>
+
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <!--
+          The colour behind the WebView. @null would let the platform default
+          show through as white for the frame or two before the page paints,
+          which on a dark phone is a visible flash.
+        -->
+        <item name="android:background">@color/appCanvas</item>
+    </style>
+
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="android:windowBackground">@color/splashBackground</item>
+    </style>
+</resources>
