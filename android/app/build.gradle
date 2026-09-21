@@ -1,0 +1,158 @@
+apply plugin: 'com.android.application'
+
+// Release signing is read from android/keystore.properties, which is gitignored
+// so the upload key passwords never enter version control. When that file is
+// absent the release build falls back to the debug key: it still compiles, and
+// it still installs on the emulator, but the resulting AAB is NOT accepted by
+// Play. The warning below is the only thing standing between that and a
+// confusing rejection at upload time, so it is deliberately loud.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKey = false
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    // The properties file alone is not enough; the .jks it points at must be
+    // present too, otherwise Gradle fails deep inside the signing task with a
+    // far less obvious message.
+    def ksPath = keystoreProperties['storeFile']
+    if (ksPath != null && rootProject.file(ksPath).exists()) {
+        hasReleaseKey = true
+    } else {
+        logger.warn("WARNING: keystore.properties found but the keystore file is missing (" + ksPath + "). Falling back to DEBUG signing. This AAB cannot be uploaded to Play.")
+    }
+} else {
+    logger.warn("WARNING: android/keystore.properties not found. Falling back to DEBUG signing. The APK installs fine for testing, but this AAB cannot be uploaded to Play. See RELEASE.md.")
+}
+
+android {
+    namespace = "com.john3004.calorietracker"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.john3004.calorietracker"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        // versionCode must be strictly higher than the live listing on Play.
+        // versionName is what the user sees; the two are bumped together.
+        versionCode 1
+        versionName "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        // This app has no translated resources — every string is English, and
+        // the food names are deliberately English-first. Restricting the
+        // resource set stops AppCompat dragging in ~80 locales' worth of
+        // strings that nothing will ever read.
+        resourceConfigurations += ['en']
+
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasReleaseKey) {
+                // rootProject.file so the path is relative to android/, matching
+                // the existence check above. Plain file() would resolve against
+                // android/app/ and fail to find the keystore.
+                storeFile rootProject.file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+
+            // R8 shrinking and obfuscation. Play Console reports an app built
+            // with these off as "App optimization: Low", and it is also what
+            // produces mapping.txt — see the bundle block below.
+            //
+            // proguard-android-optimize.txt rather than proguard-android.txt:
+            // the optimizing variant additionally runs inlining and dead-branch
+            // removal. Safe here because the only reflection in the app is
+            // Capacitor's plugin lookup, which proguard-rules.pro pins by name.
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // Play Console's "Android vitals" flags a debuggable release build,
+            // and a debuggable WebView keeps extra instrumentation alive for
+            // the whole session. Explicit rather than relying on the default.
+            debuggable false
+        }
+        debug {
+            // Keeps the debug build installable alongside a release install of
+            // the same app, so a test build never overwrites real data.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+        }
+    }
+
+    // The R8 mapping file is what turns an obfuscated Play Console crash
+    // report back into readable class and method names.
+    //
+    // AGP writes it into the AAB automatically at
+    //   BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map
+    // whenever minifyEnabled is true, so Play deobfuscates uploads with no
+    // manual step. The block below only makes that contract explicit and
+    // fails the build if a future AGP ever stops honouring it.
+    bundle {
+        // Every string in the app is English; a language split would produce
+        // one split that always ships and several that never do.
+        language { enableSplit = false }
+        density { enableSplit = true }
+        abi { enableSplit = true }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// Fails the release build if the mapping file did not reach the bundle, rather
+// than discovering it months later against an unreadable crash report.
+tasks.whenTaskAdded { task ->
+    if (task.name == 'bundleRelease') {
+        task.doLast {
+            def aab = file("$buildDir/outputs/bundle/release/app-release.aab")
+            if (!aab.exists()) return
+            def found = new java.util.zip.ZipFile(aab).withCloseable { zip ->
+                zip.getEntry('BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map') != null
+            }
+            if (!found) {
+                throw new GradleException(
+                    "app-release.aab has no R8 mapping file. Play Console cannot deobfuscate " +
+                    "crash reports from this build. Check that minifyEnabled is still true.")
+            }
+            logger.lifecycle("Verified: R8 mapping file is embedded in the AAB.")
+        }
+    }
+}
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

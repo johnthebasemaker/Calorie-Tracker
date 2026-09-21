@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dark counterparts, from the @media (prefers-color-scheme: dark) block in
+  styles.css. appCanvas matters most: it is the colour behind the WebView, so
+  a mismatch here shows as a bright flash at launch on a dark phone.
+-->
+<resources>
+    <color name="colorPrimary">#34C07A</color>      <!-- css var: accent    -->
+    <color name="colorPrimaryDark">#101215</color>  <!-- css var: bg        -->
+    <color name="colorAccent">#48D68F</color>       <!-- css var: accent-2  -->
+    <color name="appCanvas">#101215</color>         <!-- css var: bg        -->
+</resources>

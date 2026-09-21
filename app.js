@@ -4876,6 +4876,51 @@ function showView(name) {
   if (name === 'add') { renderRecent(); setTimeout(() => $('#searchInput').focus(), 60); }
 }
 
+/* Android's hardware / gesture Back.
+
+   Only ever active inside the Android app. On the web there is no such
+   button, and on an iPhone Home Screen app there is no such concept, so
+   window.Capacitor is absent and none of this runs.
+
+   It exists because without it Back is destructive. Capacitor does not
+   handle the key itself, so the press falls through to the Activity, which
+   finishes: with the food editor open, Back threw away a half-entered
+   portion and closed the whole app rather than cancelling the sheet. That
+   is invisible on iPhone, which is why it survived this long.
+
+   The order below is the Android convention — dismiss what is on top, then
+   retreat to the home tab, and only leave from there:
+
+     1. a sheet is open      -> close it, exactly as Cancel and the scrim do
+     2. not on the Today tab -> go to Today
+     3. on Today             -> leave the app
+
+   The plugin is reached through the global bridge rather than an import,
+   because this file is a plain script with no bundler: `import` would need
+   a build step the project deliberately does not have.
+
+   Registering this listener is also what switches the plugin's own default
+   off: AppPlugin.handleOnBackPressed only walks WebView history when no
+   backButton listener exists, so the ladder below is the whole behaviour
+   rather than one of two competing handlers. */
+function wireAndroidBack() {
+  const cap = window.Capacitor;
+  const app = cap && cap.Plugins && cap.Plugins.App;
+  if (!app || typeof app.addListener !== 'function') return;
+
+  app.addListener('backButton', () => {
+    if (allSheets().some(el => !el.classList.contains('hidden'))) {
+      closeSheets();
+      return;
+    }
+    if (currentView !== 'today') {
+      showView('today');
+      return;
+    }
+    app.exitApp();
+  });
+}
+
 /* =====================================================================
    WIRE UP
    ===================================================================== */
@@ -4885,6 +4930,8 @@ function init() {
   renderAll();
 
   $$('.tab').forEach(t => t.onclick = () => showView(t.dataset.view));
+
+  wireAndroidBack();
 
   /* Date nav: a calendar for any date, and one tap back to today. No
      step arrows — a stray tap on those was how entries landed on the

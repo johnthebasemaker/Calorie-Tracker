@@ -1,4 +1,37 @@
 .DS_Store
 .claude/
 *.log
+
+# Exported backups, which contain the user's own food log.
 macros-backup-*.json
+
+# Node toolchain. Only the Capacitor CLI lives here; the app itself has no
+# dependencies and is still plain HTML, CSS and JS served from the repo root.
+node_modules/
+
+# Generated web bundle for the Android build (scripts/build-www.mjs).
+# GitHub Pages serves the root, not this, so it is pure build output.
+www/
+
+# Signing secrets. Never commit these. A leaked upload key cannot be quietly
+# rotated - Google has to reset it for the listing.
+android/keystore.properties
+*.jks
+*.keystore
+*keystore-credentials*
+
+# Native build output and local machine paths.
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/capacitor-cordova-android-plugins/
+
+# Assets Capacitor copies in from www/ on every sync.
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# Emulator screenshots from bin/android-preview.sh.
+.android-shots/

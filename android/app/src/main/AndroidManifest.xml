@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Two attributes on <application> below are deliberate and worth the note,
+      since both look like defaults someone might "tidy up":
+
+      android:allowBackup="false" is a privacy decision, not an oversight.
+      Everything this app stores lives in WebView localStorage, inside the
+      app's data directory, so Android Auto Backup would sweep up the whole of
+      it including ct.ai.v1, the OpenRouter API key. The app's own
+      exportBackup() pointedly omits that key ("device-only, never exported"),
+      and copying it to Google's servers behind the user's back would undo
+      that decision from the outside. Losing history on a phone change is the
+      cost; it is paid by the export/import already in Settings, which the
+      user runs knowingly and which leaves the key behind. On API 31+ this
+      also disables device-to-device transfer, so no separate
+      dataExtractionRules file is needed.
+
+      android:hardwareAccelerated="true" is also the platform default, but is
+      stated because a WebView without it falls back to software
+      rasterisation, which turns every scroll of the food list into sustained
+      CPU work. That is exactly the pattern Play's battery guidance warns
+      about, and it is one careless edit away.
+    -->
+    <application
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- ===================== Permissions ===================== -->
+
+    <!--
+      Required by three optional features, none of which block the app:
+      OpenRouter suggestions, Open Food Facts barcode lookups, and the
+      Open-Meteo call behind the weather-adjusted water target. With no
+      connection the app still opens and logs food from local data.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      A normal permission: no runtime prompt, no Play declaration.
+
+      It is here for a specific reason. Chromium's NetworkChangeNotifier needs
+      it to observe connectivity, and without it navigator.onLine inside the
+      WebView can report true on a disconnected device. app.js branches on
+      exactly that value in classifyNetworkFailure() to tell "you are offline"
+      apart from "OpenRouter is down", so omitting this would make the app
+      confidently show the wrong error message.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+      The barcode scanner, via getUserMedia in the WebView. Capacitor's
+      BridgeWebChromeClient turns the WebView's permission request into the
+      Android runtime prompt, so no extra Java is needed here.
+
+      Nothing is recorded or transmitted: frames are decoded to a barcode
+      number in-process and discarded. Only the resulting number is sent, to
+      Open Food Facts. That is the whole of the Data Safety answer.
+
+      If permission is refused the app falls back to typing the number by
+      hand, a path that already exists.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+      required="false" on both, or Play hides the listing from every device
+      without a camera and without autofocus hardware. The scanner is one
+      convenience inside a food log, not a reason to exclude a device: manual
+      barcode entry covers the same ground.
+    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!--
+      Battery and policy hygiene.
+
+      None of these are requested by this app, but a permission only has to
+      appear in one transitive dependency's manifest to be merged in, and then
+      it shows on the Play listing and in Android vitals as though it were
+      deliberate. Each removal below is a standing assertion about how this
+      app behaves:
+
+        WAKE_LOCK, FOREGROUND_SERVICE, RECEIVE_BOOT_COMPLETED
+          nothing runs when the app is not in front. The check-in and workout
+          reminders are in-app banners computed from the clock on next open;
+          there is no scheduler, no service and no boot hook, which is why the
+          app cannot drain the battery in the background.
+
+        SCHEDULE_EXACT_ALARM, USE_EXACT_ALARM
+          Play restricts these to alarm and clock apps and requires a policy
+          declaration to keep them. This app has no alarms at all.
+
+        AD_ID
+          no ads, no analytics. Declaring it would force an advertising-ID
+          answer in the Data Safety form for a permission nothing uses.
+
+      tools:node="remove" is a merge instruction; it leaves no trace in the
+      built manifest, which is verified after every build.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:node="remove" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+
+</manifest>

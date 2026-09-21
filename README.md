@@ -39,6 +39,36 @@ and Cloudflare Pages both serve it free over HTTPS.
 
 ---
 
+## Getting it onto Android
+
+There is a real Android app as well, built as an App Bundle for Play. It wraps
+the same files in a WebView with Capacitor, so there is one codebase and no
+second version to keep in step — `scripts/build-www.mjs` copies the web assets
+into the native project at build time.
+
+```bash
+npm install          # once
+npm run android:aab  # -> android/app/build/outputs/bundle/release/app-release.aab
+```
+
+`RELEASE.md` has the whole process, including creating the upload key.
+
+Three differences from the web version, all deliberate:
+
+- **The service worker is not shipped.** It has nothing to do in a native app
+  — every asset is already on the filesystem — and a worker that cached build
+  N would keep serving it after Play installed build N+1.
+- **Android Auto Backup is off.** It would copy localStorage to Google's
+  servers, and that includes the OpenRouter API key, which the app's own
+  export deliberately omits. Use Settings → Export instead; it leaves the key
+  behind.
+- **The hardware Back button** closes an open sheet, then returns to Today,
+  then exits. Without that it exited the app outright, discarding a
+  half-entered portion — a bug that cannot exist on iPhone, which has no Back
+  button.
+
+---
+
 ## How it works
 
 **Adding food.** Type a name in the Add tab. Your own library (120+ pre-seeded
@@ -564,7 +594,10 @@ you'll paste that in again on a new device.
 | `vendor/` | html5-qrcode, committed so scanning works offline |
 | `sw.js` | Service worker; caches the app shell for offline use |
 | `manifest.webmanifest` | PWA metadata for Add to Home Screen |
-| `icons/` | App icons |
+| `icons/` | App icons — also the source for every Android launcher icon |
+| `android/` | The Capacitor Android project (see `RELEASE.md`) |
+| `scripts/` | `build-www.mjs` assembles the web bundle; `android-assets.py` generates the launcher icons |
+| `bin/android-preview.sh` | Drives the app on a headless emulator: install, tap, screenshot |
 
 If you edit any shell file, bump `CACHE` at the top of `sw.js` so the change
 reaches devices that already installed the app.
