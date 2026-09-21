@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Calorie Tracker</title>
+<meta name="description" content="Privacy policy for the Calorie Tracker app. No data is collected. Everything stays on your device.">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101215" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<style>
+  :root {
+    --bg:#f4f5f7; --card:#ffffff; --line:#e2e4e9; --text:#14161a;
+    --dim:#6c7280; --accent:#1f7a4d; --radius:14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#101215; --card:#191c21; --line:#2a2f36; --text:#e9ecf0;
+      --dim:#9099a3; --accent:#34c07a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; padding:24px 16px 64px; background:var(--bg); color:var(--text);
+    font:16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  main { max-width:720px; margin:0 auto; }
+  h1 { font-size:28px; line-height:1.25; margin:0 0 6px; }
+  h2 { font-size:19px; margin:34px 0 10px; }
+  h3 { font-size:16px; margin:22px 0 6px; }
+  p, li { color:var(--text); }
+  .meta { color:var(--dim); font-size:14px; margin:0 0 28px; }
+  .card {
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:18px 20px; margin:20px 0;
+  }
+  .lead { font-size:17px; }
+  ul { padding-left:20px; }
+  li { margin:6px 0; }
+  a { color:var(--accent); }
+  code {
+    background:var(--bg); border:1px solid var(--line); border-radius:6px;
+    padding:1px 5px; font-size:14px;
+  }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:15px; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:.03em; }
+  footer { margin-top:40px; padding-top:18px; border-top:1px solid var(--line); color:var(--dim); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Privacy Policy</h1>
+<p class="meta">Calorie Tracker (<code>com.john3004.calorietracker</code>) · Effective 21 September 2026</p>
+
+<div class="card">
+  <p class="lead" style="margin:0"><strong>This app does not collect any of your data.</strong>
+  There is no account, no sign-in, no server belonging to this app, no analytics
+  and no advertising. Everything you log stays in storage on your own device.</p>
+</div>
+
+<h2>What the app stores, and where</h2>
+<p>Your food log, custom foods, water, workouts, body details and settings are
+saved in your device's local browser storage, inside the app's own private
+storage area. This data:</p>
+<ul>
+  <li>is never uploaded to any server run by this app, because there is none;</li>
+  <li>is not readable by other apps;</li>
+  <li>is <strong>excluded from Android's automatic cloud backup</strong>, deliberately — see below;</li>
+  <li>is deleted completely when you uninstall the app.</li>
+</ul>
+
+<h2>What leaves your device</h2>
+<p>The app works fully offline. Three optional features make requests to
+outside services, and nothing else does. No request carries your name, your
+email, an account id or an advertising id, because the app holds none of them.</p>
+
+<table>
+  <tr><th>Service</th><th>When</th><th>What is sent</th></tr>
+  <tr>
+    <td><a href="https://world.openfoodfacts.org/" rel="noopener">Open Food Facts</a></td>
+    <td>Only when you search for a packaged food or scan a barcode</td>
+    <td>The text you typed, or the barcode number</td>
+  </tr>
+  <tr>
+    <td><a href="https://open-meteo.com/" rel="noopener">Open-Meteo</a></td>
+    <td>Only if you set a city, to adjust the daily water target for heat</td>
+    <td>The city name you typed, then its coordinates</td>
+  </tr>
+  <tr>
+    <td><a href="https://openrouter.ai/" rel="noopener">OpenRouter</a></td>
+    <td>Only if you turn on AI summary <em>and</em> paste in your own API key</td>
+    <td>See below — this one is the most sensitive</td>
+  </tr>
+</table>
+
+<h3>Location</h3>
+<p>The app never asks for or uses your device's location. The city used for the
+weather adjustment is one you type in yourself, and you can leave it blank.</p>
+
+<h3>The AI feature, in detail</h3>
+<p>AI summary is <strong>off by default</strong> and cannot run until you paste
+in your own OpenRouter API key. If you turn it on, requests to OpenRouter may
+include:</p>
+<ul>
+  <li>the foods you logged that day, their portions and the times you ate them;</li>
+  <li>your calorie and nutrient totals and targets;</li>
+  <li>the names of foods in your library, so suggestions match what you eat;</li>
+  <li><strong>if you filled in My Profile: your age, sex, height, weight and
+      goal</strong> — this is health-related information about you;</li>
+  <li>any free-text goal you wrote yourself.</li>
+</ul>
+<p>Your use of that feature is governed by
+<a href="https://openrouter.ai/privacy" rel="noopener">OpenRouter's privacy policy</a>
+and by the policy of whichever model provider serves the request. If you would
+rather share none of this, leave AI summary switched off, or clear the API key
+in Settings. The rest of the app is unaffected.</p>
+<p>Your API key is stored only on your device. It is sent to OpenRouter to
+authenticate your own requests and nowhere else, and it is deliberately left
+out of the app's own backup export.</p>
+
+<h2>Camera</h2>
+<p>The app asks for camera permission for one purpose: reading a barcode off a
+packet. The camera image is decoded to a number inside the app and discarded
+immediately. <strong>No photo or video is saved, kept, or transmitted
+anywhere.</strong> Only the decoded barcode number is sent, to Open Food Facts,
+to look up the product.</p>
+<p>You can refuse the permission and still use the whole app — there is a field
+for typing the barcode number by hand.</p>
+
+<h2>Backups</h2>
+<p>Android's automatic cloud backup is switched <strong>off</strong> for this
+app on purpose. Had it been left on, your log would have been copied to Google's
+servers — and so would your OpenRouter API key, which is stored alongside it.</p>
+<p>Instead, Settings has an Export that writes a backup file you control, and it
+deliberately leaves the API key out. Where you then put that file is up to you.</p>
+
+<h2>Your control over the data</h2>
+<ul>
+  <li><strong>See it:</strong> Settings → Export writes everything out as a readable JSON file.</li>
+  <li><strong>Delete it:</strong> uninstalling the app removes all of it. There is nothing
+      held elsewhere to request the deletion of, because nothing was ever sent.</li>
+  <li><strong>Stop the outbound requests:</strong> turn off AI summary, clear the city, and
+      avoid barcode search. The app still works offline.</li>
+</ul>
+
+<h2>Children</h2>
+<p>This app is not directed at children and collects no data from anyone,
+including children.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the updated version will be published at this same
+address with a new effective date. The page's full history is public in the
+<a href="https://github.com/johnthebasemaker/Calorie-Tracker/commits/main/privacy.html" rel="noopener">repository</a>,
+so any change can be inspected.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy, or about the app's handling of data, can be
+raised at
+<a href="https://github.com/johnthebasemaker/Calorie-Tracker/issues" rel="noopener">github.com/johnthebasemaker/Calorie-Tracker/issues</a>.</p>
+
+<footer>
+  Calorie Tracker is open source. Everything described above can be verified in
+  the <a href="https://github.com/johnthebasemaker/Calorie-Tracker" rel="noopener">source code</a>.
+  <br><a href="./">Back to the app</a>
+</footer>
+
+</main>
+</body>
+</html>
