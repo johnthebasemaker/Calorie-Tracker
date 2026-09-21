@@ -21,12 +21,32 @@ const KEY = {
   burn:  'ct.burn.v1',      // cumulative Apple Health readings per checkpoint
   advice:'ct.advice.v1',    // cached AI suggestion per date+reading
   feat:  'ct.features.v1',  // { burn, ai } — both off for a fresh browser
+  remind:'ct.remind.v1',    // reminder schedule — Android notifications only
 };
 
 /* Off by default, so a shared link opens as a plain food + water tracker.
    Switching one off only hides its UI; the data stays and comes back. */
 const DEFAULT_FEATURES = { burn: false, ai: false };
 let features = { ...DEFAULT_FEATURES };
+
+/* Reminders.
+ *
+ * Everything here is off until the user turns it on and Android grants the
+ * notification permission, so a fresh install is silent. Quiet hours cover
+ * the overnight stretch by default; they apply to the interval reminders
+ * (water, pee) but NOT to meal, check-in or workout times, because those are
+ * specific times the user typed in and silently dropping one would look like
+ * a bug rather than a courtesy. */
+const DEFAULT_REMIND = {
+  on: false,
+  quiet: { from: 22 * 60, to: 7 * 60 },
+  water:  { on: true,  every: 90 },
+  pee:    { on: false, every: 120 },
+  meals:  [],
+  logAfter: 30,
+  burn:    { on: false },
+  workout: { on: false },
+};
 
 /* Fixed daily check-in points, matching the meal rhythm. At each one you type
    the CUMULATIVE burn Apple Health is showing; segments are derived by
@@ -832,6 +852,22 @@ function load() {
   state.regions = Object.assign({}, DEFAULT_REGIONS, readJSON(KEY.regs, {}) || {});
   state.seen    = readJSON(KEY.seen, {}) || {};
 
+  /* Deep-merged one level down: a saved object from an older build may be
+     missing whole sections, and Object.assign at the top level alone would
+     leave state.remind.water undefined the moment anything reads .every. */
+  const savedRemind = readJSON(KEY.remind, {}) || {};
+  state.remind = Object.assign({}, DEFAULT_REMIND, savedRemind, {
+    quiet:   Object.assign({}, DEFAULT_REMIND.quiet, savedRemind.quiet || {}),
+    water:   Object.assign({}, DEFAULT_REMIND.water, savedRemind.water || {}),
+    pee:     Object.assign({}, DEFAULT_REMIND.pee, savedRemind.pee || {}),
+    burn:    Object.assign({}, DEFAULT_REMIND.burn, savedRemind.burn || {}),
+    workout: Object.assign({}, DEFAULT_REMIND.workout, savedRemind.workout || {}),
+    meals:   Array.isArray(savedRemind.meals)
+      ? savedRemind.meals.filter(t => t && typeof t.min === 'number')
+                         .map(t => ({ id: t.id || uid(), min: t.min }))
+      : [],
+  });
+
   /* Deep-copied rather than shared with the default array — the workout log
      taught that lesson the hard way. An empty saved list is respected: no
      times means no nudges, which is a legitimate choice. */
@@ -893,6 +929,7 @@ const saveAi      = () => writeJSON(KEY.ai, state.ai);
 const saveFeatures= () => writeJSON(KEY.feat, features);
 const saveBurn    = () => writeJSON(KEY.burn, state.burn);
 const saveAdvice  = () => writeJSON(KEY.advice, state.advice);
+const saveRemind  = () => writeJSON(KEY.remind, state.remind);
 const saveTargets = () => writeJSON(KEY.set, state.targets);
 
 /* ------------------------------- helpers ------------------------------- */
@@ -1235,6 +1272,9 @@ function addWater(ml) {
   state.water.push(rec);
   saveWater();
   renderWater();
+  /* Re-arming is what drops the rest of today's water reminders once the
+     target is met; reminderPlan() checks the running total. */
+  rearmReminders();
   return rec;
 }
 function removeWater(id) {
@@ -1803,6 +1843,8 @@ function addEntry(food, grams) {
   lastAddedId = e.id;
   saveEntries();
   renderAll();
+  /* The follow-up for the meal just logged against is now noise. */
+  cancelDueFoodFollowUps();
   return e;
 }
 function undoLastAdd() {
@@ -4278,6 +4320,48 @@ function nextFreeMinute(times, start) {
   return m;
 }
 
+/* The Reminders panel.
+ *
+ * The whole section hides itself on the web and on iPhone, where there is no
+ * plugin to schedule anything. Showing a set of switches that silently do
+ * nothing would be worse than not offering them. */
+function renderReminders() {
+  const wrap = $('#remindWrap');
+  if (!wrap) return;
+  wrap.classList.toggle('hidden', !remindersSupported());
+  if (!remindersSupported()) return;
+
+  const r = state.remind;
+  $('#remOn').checked = !!r.on;
+  $('#remBody').classList.toggle('hidden', !r.on);
+
+  $('#remQuietFrom').value = minToHHMM(r.quiet.from);
+  $('#remQuietTo').value   = minToHHMM(r.quiet.to);
+  $('#remWaterOn').checked = !!r.water.on;
+  $('#remWaterEvery').value = String(r.water.every);
+  $('#remPeeOn').checked   = !!r.pee.on;
+  $('#remPeeEvery').value  = String(r.pee.every);
+  $('#remLogAfter').value  = String(r.logAfter);
+  $('#remBurnOn').checked  = !!r.burn.on;
+  $('#remWorkoutOn').checked = !!r.workout.on;
+
+  /* Burn check-ins only exist as a concept when that feature is on. */
+  $('#remBurnRow').classList.toggle('hidden', !features.burn);
+
+  renderTimeList({
+    mount: '#remMealList',
+    get: () => r.meals || [],
+    set: v => { r.meals = v; saveRemind(); },
+    emptyText: 'No meal times yet — add one and you will be reminded to eat, then to log it.',
+    after: () => { renderReminders(); rearmReminders(); },
+  });
+
+  const n = reminderPlan().filter(x => x.at - Date.now() < 864e5).length;
+  $('#remSummary').textContent = r.on
+    ? `${n} reminder${n === 1 ? '' : 's'} queued for the next 24 hours.`
+    : '';
+}
+
 function renderWorkoutTimes() {
   renderTimeList({
     mount: '#woTimeList',
@@ -4524,6 +4608,7 @@ const MICRO_TARGET_IDS = {};
 MICROS.forEach(m => { MICRO_TARGET_IDS[m.k] = '#t' + m.k[0].toUpperCase() + m.k[1]; });
 
 function renderSettings() {
+  renderReminders();
   $('#tKcal').value = state.targets.kcal;
   $('#tP').value = state.targets.p;
   $('#tC').value = state.targets.c;
@@ -4922,6 +5007,254 @@ function wireAndroidBack() {
 }
 
 /* =====================================================================
+   REMINDERS  (Android only)
+   =====================================================================
+
+   Until this existed, every "reminder" in the app was a banner drawn when
+   you opened it — which is exactly the moment you no longer need reminding.
+   These are real Android notifications, scheduled by the OS, so they arrive
+   with the app closed.
+
+   Two deliberate constraints shape the whole design:
+
+   1. INEXACT ALARMS ONLY. Every notification sets isExactNotification:false,
+      which matters because the plugin's default is true. Exact alarms need
+      SCHEDULE_EXACT_ALARM, which Google restricts to alarm-clock and
+      calendar apps and which would put this listing in front of a policy
+      review it would probably lose. A water reminder landing at 2:05 rather
+      than 2:00 costs nothing. allowWhileIdle is true so Doze delays them
+      rather than swallowing them entirely.
+
+   2. NO SERVER, SO NO PUSH. Nothing can be sent to the phone from outside.
+      Everything is pre-scheduled locally, which means the schedule is only
+      as fresh as the last time the app ran. A rolling horizon of
+      REMIND_HORIZON_DAYS is armed on every open, so the app has to be
+      opened about once a week or reminders run out. That is the honest
+      trade for having no backend, and it is stated in Settings.
+
+   The whole schedule is rebuilt from scratch on every re-arm rather than
+   diffed. Diffing pending notifications against desired ones was the
+   obvious design and it is how duplicate reminders happen. */
+
+const REMIND_HORIZON_DAYS = 7;
+
+/* Kind is encoded in the id so a single notification can be found and
+   cancelled later without keeping a separate map in storage that could drift
+   out of step with what Android actually holds. */
+const RKIND = { water: 1, pee: 2, meal: 3, logfood: 4, burn: 5, workout: 6 };
+const remindId = (kind, day, slot) => kind * 10000000 + day * 1000 + slot;
+const remindKindOf = id => Math.floor(id / 10000000);
+
+const LN = () => {
+  const cap = window.Capacitor;
+  const plugin = cap && cap.Plugins && cap.Plugins.LocalNotifications;
+  return plugin && typeof plugin.schedule === 'function' ? plugin : null;
+};
+/* True only inside the Android app. On the web and on an iPhone Home Screen
+   app there is no plugin, and the Settings section hides itself. */
+const remindersSupported = () => !!LN();
+
+/* Quiet hours wrap past midnight in the normal case (22:00 to 07:00), so a
+   plain from <= x < to comparison is wrong for the majority of real
+   settings. from === to means the window is empty, not the whole day. */
+function inQuietHours(min, q) {
+  if (!q || q.from === q.to) return false;
+  return q.from < q.to ? (min >= q.from && min < q.to)
+                       : (min >= q.from || min < q.to);
+}
+
+/* Interval reminders run from the end of quiet hours to the start of the
+   next one. Stepping from the wake time rather than from midnight is what
+   keeps the first one of the day at a sensible hour. */
+function intervalSlots(every, q) {
+  const out = [];
+  const step = Math.max(15, Math.round(every) || 60);
+  let t = (q && typeof q.to === 'number') ? q.to : 0;
+  for (let i = 0; i < 96 && t < 1440; i++) {
+    if (!inQuietHours(t, q)) out.push(t);
+    t += step;
+  }
+  return out;
+}
+
+function atOn(dayOffset, min) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + dayOffset);
+  d.setMinutes(min);
+  return d;
+}
+
+/* Every occurrence the app wants Android to deliver, across the horizon.
+   Pure: it reads state and returns a plan, so it can be unit-checked and so
+   cancelDueFoodFollowUps can ask "what did we schedule?" without duplicating
+   any of the arithmetic. */
+function reminderPlan() {
+  const r = state.remind;
+  const out = [];
+  if (!r || !r.on) return out;
+
+  const now = Date.now();
+  const push = (kind, day, slot, min, title, body, extra) => {
+    const at = atOn(day, min);
+    if (at.getTime() <= now + 30000) return;   // no point arming the past
+    out.push(Object.assign({
+      id: remindId(kind, day, slot), title, body, at,
+    }, extra || {}));
+  };
+
+  const waterSlots = intervalSlots(r.water.every, r.quiet);
+  const peeSlots   = intervalSlots(r.pee.every, r.quiet);
+
+  for (let day = 0; day < REMIND_HORIZON_DAYS; day++) {
+    /* Water, unless today's target is already met. Only today can be
+       judged — a future day has no intake yet, and skipping it because
+       today went well would be nonsense. */
+    if (r.water.on) {
+      const metToday = day === 0 && state.targets.water > 0 &&
+                       waterTotal(todayStr()) >= state.targets.water;
+      if (!metToday) {
+        waterSlots.forEach((min, i) =>
+          push(RKIND.water, day, i, min, 'Drink some water',
+               'A glass now keeps you ahead of the target.'));
+      }
+    }
+
+    if (r.pee.on) {
+      peeSlots.forEach((min, i) =>
+        push(RKIND.pee, day, i, min, 'Take a bathroom break',
+             'Holding it while you are on shift is how the day gets uncomfortable.'));
+    }
+
+    /* Meal time, then a nudge to write down what was actually eaten. The
+       second one is cancelled if food is logged in between. */
+    (r.meals || []).forEach((t, i) => {
+      push(RKIND.meal, day, i, t.min, 'Time to eat',
+           'Have your meal — the app will ask what it was shortly after.');
+      push(RKIND.logfood, day, i, t.min + (r.logAfter || 30),
+           'What did you eat?',
+           'Log it now while you still remember the portion.',
+           { actionTypeId: 'LOG_FOOD' });
+    });
+
+    if (r.burn.on && features.burn) {
+      checkpoints().forEach((cp, i) =>
+        push(RKIND.burn, day, i, cp.min, 'Burn check-in',
+             `Enter the cumulative figure your tracker shows at ${cp.label}.`));
+    }
+
+    if (r.workout.on) {
+      ((state.workout && state.workout.times) || []).forEach((t, i) =>
+        push(RKIND.workout, day, i, t.min, 'Workout time',
+             'A 20-minute session is enough. Tick exercises off as you go.'));
+    }
+  }
+  return out;
+}
+
+/* Android caps how many alarms one app may hold. The horizon is sized to
+   stay well under it, but a user with ten meal times and a 15-minute water
+   interval could still get close, so the plan is trimmed to the soonest
+   ones rather than being allowed to fail as a whole. */
+const REMIND_MAX = 400;
+
+async function rearmReminders() {
+  const ln = LN();
+  if (!ln) return;
+  try {
+    const pending = await ln.getPending();
+    const held = (pending && pending.notifications) || [];
+    if (held.length) {
+      await ln.cancel({ notifications: held.map(n => ({ id: n.id })) });
+    }
+
+    const r = state.remind;
+    if (!r || !r.on) return;
+
+    const perm = await ln.checkPermissions();
+    if (perm && perm.display !== 'granted') {
+      /* Permission was revoked in Android settings after being granted.
+         Reflect that rather than leaving a switch on that does nothing. */
+      state.remind.on = false; saveRemind(); renderReminders();
+      return;
+    }
+
+    let plan = reminderPlan();
+    plan.sort((a, b) => a.at - b.at);
+    if (plan.length > REMIND_MAX) plan = plan.slice(0, REMIND_MAX);
+    if (!plan.length) return;
+
+    await ln.schedule({
+      notifications: plan.map(n => ({
+        id: n.id,
+        title: n.title,
+        body: n.body,
+        actionTypeId: n.actionTypeId || '',
+        /* See the note at the top: the plugin defaults this to true, and
+           leaving it so would request an exact alarm we have no permission
+           for and do not want. */
+        isExactNotification: false,
+        schedule: { at: n.at, allowWhileIdle: true },
+      })),
+    });
+  } catch (err) {
+    console.warn('[Macros] could not arm reminders:', err);
+  }
+}
+
+/* Called after food is logged. The "what did you eat?" nudge for the meal
+   you have just logged against is pointless, so it is cancelled — but only
+   the one that was about to fire, not the whole series. */
+async function cancelDueFoodFollowUps() {
+  const ln = LN();
+  if (!ln || !state.remind || !state.remind.on) return;
+  try {
+    const now = Date.now();
+    const window = ((state.remind.logAfter || 30) + 5) * 60000;
+    const due = reminderPlan().filter(n =>
+      remindKindOf(n.id) === RKIND.logfood &&
+      n.at.getTime() > now && n.at.getTime() - now <= window);
+    if (due.length) await ln.cancel({ notifications: due.map(n => ({ id: n.id })) });
+  } catch (err) {
+    console.warn('[Macros] could not cancel the follow-up:', err);
+  }
+}
+
+async function enableReminders() {
+  const ln = LN();
+  if (!ln) return false;
+  try {
+    const cur = await ln.checkPermissions();
+    const res = (cur && cur.display === 'granted') ? cur : await ln.requestPermissions();
+    return !!res && res.display === 'granted';
+  } catch (err) {
+    console.warn('[Macros] notification permission failed:', err);
+    return false;
+  }
+}
+
+async function initReminders() {
+  const ln = LN();
+  if (!ln) return;
+  try {
+    await ln.registerActionTypes({
+      types: [{ id: 'LOG_FOOD', actions: [{ id: 'log', title: 'Log it' }] }],
+    });
+    /* Tapping the notification, or its Log it button, should land where the
+       work is — the Add tab — not on Today, which is another two taps away
+       from the thing the notification asked for. */
+    ln.addListener('localNotificationActionPerformed', ev => {
+      const id = ev && ev.notification && ev.notification.id;
+      if (remindKindOf(id || 0) === RKIND.logfood) showView('add');
+      else if (remindKindOf(id || 0) === RKIND.workout) showView('workout');
+    });
+  } catch (err) {
+    console.warn('[Macros] reminder init failed:', err);
+  }
+  await rearmReminders();
+}
+
+/* =====================================================================
    WIRE UP
    ===================================================================== */
 
@@ -4932,6 +5265,7 @@ function init() {
   $$('.tab').forEach(t => t.onclick = () => showView(t.dataset.view));
 
   wireAndroidBack();
+  initReminders();
 
   /* Date nav: a calendar for any date, and one tap back to today. No
      step arrows — a stray tap on those was how entries landed on the
@@ -4960,6 +5294,54 @@ function init() {
     totalsOpen = !totalsOpen;
     setExpanded($('#toggleTotals'), $('#totalsMicros'), totalsOpen);
   };
+  /* Reminders */
+  $('#remOn').onchange = async () => {
+    if ($('#remOn').checked) {
+      const ok = await enableReminders();
+      if (!ok) {
+        /* Android refused, or the user declined the system prompt. Put the
+           switch back rather than leaving it on over a schedule that can
+           never be delivered. */
+        $('#remOn').checked = false;
+        $('#remindState').textContent =
+          'Android is blocking notifications for this app — turn them on in Settings › Apps › Calorie Tracker › Notifications.';
+        return;
+      }
+    }
+    state.remind.on = $('#remOn').checked;
+    $('#remindState').textContent = state.remind.on
+      ? 'On. Reminders arrive with the app closed.'
+      : 'Android will ask permission once.';
+    saveRemind(); renderReminders(); rearmReminders();
+  };
+
+  const bindRem = (sel, apply) => {
+    const el = $(sel);
+    if (el) el.onchange = () => { apply(el); saveRemind(); renderReminders(); rearmReminders(); };
+  };
+  bindRem('#remWaterOn',    el => state.remind.water.on = el.checked);
+  bindRem('#remWaterEvery', el => state.remind.water.every = Number(el.value));
+  bindRem('#remPeeOn',      el => state.remind.pee.on = el.checked);
+  bindRem('#remPeeEvery',   el => state.remind.pee.every = Number(el.value));
+  bindRem('#remLogAfter',   el => state.remind.logAfter = Number(el.value));
+  bindRem('#remBurnOn',     el => state.remind.burn.on = el.checked);
+  bindRem('#remWorkoutOn',  el => state.remind.workout.on = el.checked);
+  bindRem('#remQuietFrom',  el => {
+    const v = parseTimeInput(el.value);
+    if (v != null) state.remind.quiet.from = v;
+  });
+  bindRem('#remQuietTo',    el => {
+    const v = parseTimeInput(el.value);
+    if (v != null) state.remind.quiet.to = v;
+  });
+
+  $('#remAddMeal').onclick = () => {
+    const meals = state.remind.meals || [];
+    meals.push({ id: uid(), min: nextFreeMinute(meals, 13 * 60) });
+    state.remind.meals = meals.slice().sort((a, b) => a.min - b.min);
+    saveRemind(); renderReminders(); rearmReminders();
+  };
+
   $('#toggleNutTargets').onclick = () => {
     const open = $('#toggleNutTargets').getAttribute('aria-expanded') !== 'true';
     setExpanded($('#toggleNutTargets'), $('#nutTargets'), open);

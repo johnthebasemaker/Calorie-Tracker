@@ -24,10 +24,15 @@
 # unconditionally, even with no Cordova plugins present.
 -keep class org.apache.cordova.** { *; }
 
-# The one plugin this app declares, kept by name. Capacitor instantiates it
-# reflectively from the generated plugin list, so a rename by R8 breaks Back
-# with no error - the app simply exits again on the first press.
+# The plugins this app declares, kept by name. Capacitor instantiates them
+# reflectively from the generated plugin list, so a rename by R8 breaks them
+# with no error at all - Back simply exits again, and reminders never fire.
 -keep class com.capacitorjs.plugins.app.** { *; }
+-keep class com.capacitorjs.plugins.localnotifications.** { *; }
+
+# The notification receivers are named as strings in the merged manifest,
+# which R8 cannot see as class references.
+-keep class * extends android.content.BroadcastReceiver { *; }
 
 # Keep the app's own entry point, which the manifest names as a string
 # (android:name=".MainActivity"). R8 cannot see a string as a class reference.

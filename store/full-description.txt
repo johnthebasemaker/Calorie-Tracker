@@ -1,0 +1,56 @@
+Most calorie apps were built around Western food. Searching them for idli, kabsa or haleem gets you a guess, a foreign brand, or nothing at all — so you end up estimating, and after a week you stop bothering.
+
+This one starts from the food you actually eat. Idli, dosa, sambar, biryani, kabsa, mandi, shawarma, hummus, karak chai and the branded drinks on every corner shop shelf are already in it, with figures taken from IFCT and USDA composition tables rather than guessed.
+
+It works with no signal at all. There is no account to make, nothing to log in to, no subscription, and no ads. Your food log lives on your phone and nowhere else.
+
+
+WHAT IT TRACKS
+
+• Calories, protein, carbs and fat, against daily targets
+• Fibre, sodium, cholesterol, calcium and iron
+• Sugar split three ways — total, added and natural — because 30 g from dates is not 30 g from a soft drink
+• Water, with the target raised automatically when it is hot where you are
+• Bodyweight workouts, tracked per exercise
+
+
+BUILT FOR THE FOOD YOU EAT
+
+South Indian and Saudi/Gulf dishes are included from the start. Three more libraries — North Indian, Pakistani and Filipino — can be switched on in Settings, 40 dishes each, and are kept on the device once downloaded so they work offline too.
+
+Packaged food is covered by barcode scanning through the Open Food Facts database. Point the camera at a wrapper and the nutrition comes back filled in. If the camera is not convenient, type the number instead.
+
+Anything missing you can add once and reuse forever, with your own portion sizes — one idli, one roti, one cup.
+
+
+TARGETS THAT FIT YOU
+
+Fill in your height, weight, age and goal, and targets are calculated from your own body rather than a generic 2,000 kcal: Mifflin-St Jeor for your resting rate, adjusted by your real activity, with protein set from evidence-based grams per kilogram.
+
+Pick focus areas — muscle gain, weight loss, heart, bone, energy — and the targets shift to match. Every number stays editable if you disagree with it. Rates of gain and loss are capped at what is actually safe, and the app tells you the realistic date rather than a flattering one.
+
+
+HONEST ABOUT WHAT IT DOES NOT KNOW
+
+When only some of the foods you logged report a nutrient, it says so — "(3/6)" — instead of pretending the total is complete. It only flags you as over a limit when what is already counted breaks it on its own. A number you cannot trust is worse than no number.
+
+
+YOUR DATA STAYS YOURS
+
+• No account, no sign-in, no server belonging to this app
+• No ads, no analytics, no tracking, no advertising ID
+• No location permission — you type a city if you want the weather adjustment
+• Android's automatic cloud backup is deliberately switched off, so your log is not copied to anyone's servers
+• Export a readable backup file whenever you like, and import it on another phone
+
+The camera is used for one thing: reading a barcode. The image is decoded in memory and discarded. No photo is ever saved or sent.
+
+
+OPTIONAL AI, ON YOUR OWN TERMS
+
+There is an optional assistant that suggests what to eat with your remaining calories and estimates unknown dishes. It is switched off until you paste in your own OpenRouter API key, and that key is stored only on your phone and left out of your backups. Leave it off and the rest of the app is unchanged.
+
+If you do turn it on, be aware it sends your day's log — and your body details, if you entered them — to OpenRouter. The privacy policy spells this out.
+
+
+Free, open source, and small. Works on a phone with no signal, in a shop, in a canteen, on shift.

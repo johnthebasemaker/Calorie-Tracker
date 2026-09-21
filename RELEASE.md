@@ -71,9 +71,11 @@ Check a keystore against that at any time with:
    dashboard first. `versionName` is the string users see.
 
    ```
-   versionCode 2
-   versionName "1.1.0"
+   versionCode 3
+   versionName "0.0.3"
    ```
+
+   The live release is **0.0.2 / versionCode 2**.
 
 2. **Build the bundle.**
 
@@ -116,6 +118,8 @@ You do not need to configure these in the Console; they are in the build.
 | Startup profile | `baseline.prof` is merged from library ART profiles and ships in the bundle |
 | 16 KB page size | No native libraries at all, so it does not apply |
 | Unused resources | `shrinkResources true`, plus `resourceConfigurations = ['en']` |
+| Exact alarms | Deliberately **not** requested. `SCHEDULE_EXACT_ALARM` is stripped in the manifest and every notification sets `isExactNotification: false`, so no policy declaration is needed |
+| Notification permission | `POST_NOTIFICATIONS`, requested at the moment the user switches reminders on, never at launch |
 
 ### Data Safety answers
 

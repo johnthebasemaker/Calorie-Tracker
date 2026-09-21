@@ -105,23 +105,41 @@
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <!--
+      Notifications, added in 0.0.2.
+
+      POST_NOTIFICATIONS is the Android 13+ runtime permission; the app asks
+      for it only when the user switches reminders on, never at launch.
+
+      RECEIVE_BOOT_COMPLETED and WAKE_LOCK come from @capacitor/local-
+      notifications and are genuinely needed: the first lets the plugin
+      re-arm the schedule after a reboot, without which every reminder
+      silently stops the first time the phone restarts, and the second lets
+      it wake the device far enough to post a notification. Both are normal
+      permissions with no runtime prompt.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       Battery and policy hygiene.
 
-      None of these are requested by this app, but a permission only has to
-      appear in one transitive dependency's manifest to be merged in, and then
-      it shows on the Play listing and in Android vitals as though it were
-      deliberate. Each removal below is a standing assertion about how this
-      app behaves:
-
-        WAKE_LOCK, FOREGROUND_SERVICE, RECEIVE_BOOT_COMPLETED
-          nothing runs when the app is not in front. The check-in and workout
-          reminders are in-app banners computed from the clock on next open;
-          there is no scheduler, no service and no boot hook, which is why the
-          app cannot drain the battery in the background.
+      Each removal below is a standing assertion about how this app behaves.
+      Note that 0.0.2 narrowed this list: adding real reminders meant
+      RECEIVE_BOOT_COMPLETED and WAKE_LOCK had to be allowed through, and the
+      claim that "nothing runs when the app is not in front" no longer holds.
+      What remains true is that nothing runs *continuously* - there is no
+      service and no polling, only alarms the OS itself holds and delivers.
 
         SCHEDULE_EXACT_ALARM, USE_EXACT_ALARM
-          Play restricts these to alarm and clock apps and requires a policy
-          declaration to keep them. This app has no alarms at all.
+          the local-notifications plugin declares the first, and it is
+          removed here on purpose. Google restricts both to alarm-clock and
+          calendar apps and requires a policy declaration to keep them; a
+          food tracker asking for them invites a review it would lose. Every
+          notification this app schedules sets isExactNotification:false, so
+          the plugin takes its inexact path and nothing breaks. A reminder
+          arriving at 2:05 instead of 2:00 is not worth a policy risk.
+
+        FOREGROUND_SERVICE
+          still nothing long-running. Reminders are OS alarms, not a service.
 
         AD_ID
           no ads, no analytics. Declaring it would force an advertising-ID
@@ -130,8 +148,6 @@
       tools:node="remove" is a merge instruction; it leaves no trace in the
       built manifest, which is verified after every build.
     -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" tools:node="remove" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" tools:node="remove" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" tools:node="remove" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:node="remove" />

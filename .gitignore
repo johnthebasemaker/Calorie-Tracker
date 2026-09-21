@@ -35,3 +35,7 @@ android/app/src/main/assets/capacitor.plugins.json
 
 # Emulator screenshots from bin/android-preview.sh.
 .android-shots/
+
+# Packaged store assets for upload. The sources in store/ are committed; this
+# archive is just them zipped for delivery.
+play-store-assets.zip

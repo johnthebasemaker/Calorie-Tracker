@@ -10,6 +10,22 @@ in Settings any time.
 
 ---
 
+## Working rule for this repo
+
+**Changes are committed and pushed straight to `main` once they are done and
+verified.** No feature branch, no pull request, no waiting to be asked.
+
+This is deliberate and specific to this repo. It overrides the usual habit of
+branching before committing to `main`: this is a single-maintainer app with no
+reviewers, and `main` is what GitHub Pages serves, so a change sitting on a
+branch is a change that has not shipped.
+
+What "done" means has not changed. A commit still lands only after the work is
+tested — for anything touching Android, that means built and exercised on the
+emulator first.
+
+---
+
 ## Getting it onto your iPhone
 
 The app needs to be served over `http(s)` — opening `index.html` directly from
@@ -66,6 +82,26 @@ Three differences from the web version, all deliberate:
   then exits. Without that it exited the app outright, discarding a
   half-entered portion — a bug that cannot exist on iPhone, which has no Back
   button.
+- **Reminders are real notifications** (0.0.2). Water, bathroom, meal times, a
+  follow-up asking what you ate, and optionally burn check-ins and workouts.
+  On the web the same settings are hidden, because there is nothing to
+  schedule them with.
+
+### How the reminders work, and what they cannot do
+
+There is still no server, so nothing is pushed to the phone. The app hands
+Android a rolling week of alarms whenever it opens, and Android delivers them
+with the app closed. Two consequences worth knowing:
+
+- **Open the app about once a week** or it runs out of queued reminders.
+- **Times drift by a few minutes.** Exact alarms need a permission Google
+  restricts to clock and calendar apps, so every reminder is scheduled inexact
+  on purpose. A water reminder landing at 2:05 rather than 2:00 is not worth a
+  policy review.
+
+Two things suppress a reminder rather than nagging you: hitting the water
+target cancels the rest of that day's water reminders, and logging any food
+cancels the pending "what did you eat?" follow-up.
 
 ---
 

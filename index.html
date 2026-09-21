@@ -376,18 +376,104 @@
       <p class="hint">When to be reminded to log your burned total. These are nudges, not slots —
         a reading is stamped with the real time you took it, whatever the reminder said. Add as
         many or as few as suit your shift; with none set, burn tracking still works and simply
-        never nudges you.</p>
+        never nudges you. For a notification at each one, switch on Burn check-ins under
+        <b>Reminders</b> below.</p>
       <div id="cpTimeList"></div>
       <button class="wide ghost" id="cpAddTime">+ Add a check-in time</button>
       <button class="wide ghost" id="cpResetTimes">Reset to 8:00 / 12:00 / 5:00 / 10:30</button>
     </div>
     </div>
 
+    <div id="remindWrap" class="hidden">
+    <h2 class="sect">Reminders</h2>
+    <div class="card form">
+      <p class="hint">Real notifications, so they arrive with the app closed. There is still no
+        server behind this — the phone is told the whole schedule in advance, which means
+        <b>open the app about once a week</b> or it runs out of reminders to deliver. Times may
+        drift by a few minutes: exact alarms are reserved by Google for clock and calendar apps.</p>
+
+      <label class="toggle">
+        <span><b>Turn reminders on</b><small id="remindState">Android will ask permission once.</small></span>
+        <input type="checkbox" id="remOn"><i></i>
+      </label>
+
+      <div id="remBody" class="hidden">
+        <h3 class="subsect">Quiet hours</h3>
+        <p class="hint">Water and bathroom reminders stay silent in this window. Meal, check-in and
+          workout times are left alone — you set those deliberately.</p>
+        <div class="field stack">
+          <label><span>From</span><input type="time" id="remQuietFrom"></label>
+          <label><span>Until</span><input type="time" id="remQuietTo"></label>
+        </div>
+
+        <h3 class="subsect">Water</h3>
+        <label class="toggle">
+          <span>Remind me to drink<small>Skipped for the rest of the day once you hit your target.</small></span>
+          <input type="checkbox" id="remWaterOn"><i></i>
+        </label>
+        <label class="field"><span>Every</span>
+          <select id="remWaterEvery">
+            <option value="30">30 minutes</option>
+            <option value="45">45 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+          </select>
+        </label>
+
+        <h3 class="subsect">Bathroom</h3>
+        <label class="toggle">
+          <span>Remind me to go<small>Useful on a long shift where you lose track.</small></span>
+          <input type="checkbox" id="remPeeOn"><i></i>
+        </label>
+        <label class="field"><span>Every</span>
+          <select id="remPeeEvery">
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+            <option value="180">3 hours</option>
+            <option value="240">4 hours</option>
+          </select>
+        </label>
+
+        <h3 class="subsect">Meals</h3>
+        <p class="hint">Each meal time gets two notifications: one telling you to eat, and one a
+          while later asking what it was. The second is cancelled automatically if you have
+          already logged something by then.</p>
+        <div id="remMealList"></div>
+        <button class="wide ghost" id="remAddMeal">+ Add a meal time</button>
+        <label class="field"><span>Ask what I ate</span>
+          <select id="remLogAfter">
+            <option value="15">15 minutes later</option>
+            <option value="30">30 minutes later</option>
+            <option value="45">45 minutes later</option>
+            <option value="60">1 hour later</option>
+            <option value="90">1.5 hours later</option>
+          </select>
+        </label>
+
+        <h3 class="subsect">Also notify me about</h3>
+        <label class="toggle" id="remBurnRow">
+          <span>Burn check-ins<small>Uses the check-in times set above.</small></span>
+          <input type="checkbox" id="remBurnOn"><i></i>
+        </label>
+        <label class="toggle">
+          <span>Workouts<small>Uses the workout times set above.</small></span>
+          <input type="checkbox" id="remWorkoutOn"><i></i>
+        </label>
+
+        <p class="hint" id="remSummary"></p>
+      </div>
+    </div>
+    </div>
+
     <h2 class="sect">Workout reminders</h2>
     <div class="card form">
-      <p class="hint">There is no server, so nothing can be pushed to your phone. These times are
-        checked when you open the app: if one has passed and you have not ticked anything off,
-        the Workout tab shows a reminder. Add as many as suit your shifts.</p>
+      <p class="hint">These times are checked when you open the app: if one has passed and you
+        have not ticked anything off, the Workout tab shows a reminder. Add as many as suit your
+        shifts. To be notified at these times with the app closed, switch on Workouts under
+        <b>Reminders</b> below.</p>
       <div id="woTimeList"></div>
       <button class="wide ghost" id="woAddTime">+ Add a workout time</button>
     </div>

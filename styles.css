@@ -829,3 +829,11 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* A hint that is actually a problem — used when a typed goal could not be read. */
 .hint.warnnote { color: var(--short); }
+
+/* Sub-heading inside a settings card. The section headers (.sect) sit above
+   cards; this is one level down, for grouping inside one. */
+.subsect {
+  margin: 18px 0 6px; font-size: 13px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--dim);
+}
+.subsect:first-child { margin-top: 4px; }
