@@ -1326,6 +1326,10 @@ function renderAll() {
   renderFinalBanner();
   renderBell();
   if (currentView === 'week') renderWeek();
+  /* Last line of defence: if the page is locked but no sheet is showing,
+     unlock it. Cheap, and it means a stuck scroll can never outlive the
+     next render. */
+  syncBodyScroll();
 }
 
 /* The topbar arrows drive whichever view is showing: days on Today,
@@ -4881,7 +4885,23 @@ function showSheet(sel) {
   allSheets().forEach(el => { if (el !== target) el.classList.add('hidden'); });
   $('#scrim').classList.remove('hidden');
   target.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
+  syncBodyScroll();
+}
+
+/* Whether the page behind a sheet may scroll is derived from whether a sheet
+   is actually on screen, never tracked as its own flag.
+
+   The old code set body.overflow = 'hidden' when opening and cleared it when
+   closing, which is correct only while both halves always run. If anything
+   between them threw, the page stayed unscrollable for the rest of the
+   session and only a restart fixed it — the app looked frozen while every
+   button still worked. Deriving it means the next render always repairs it.
+*/
+const anySheetVisible = () =>
+  allSheets().some(el => !el.classList.contains('hidden'));
+
+function syncBodyScroll() {
+  document.body.style.overflow = anySheetVisible() ? 'hidden' : '';
 }
 
 /* A real dismiss: hide every sheet and drop the half-finished state behind
@@ -4892,22 +4912,31 @@ function closeSheets() {
   aiGen++;                 // an estimate still in flight must not reopen a sheet
   aiInFlight = false;
 
+  /* Hide the sheets and release the scroll lock BEFORE the tidy-up below.
+     That tidy-up reaches for half a dozen specific elements, and a single
+     missing one used to throw here and leave the app permanently
+     unscrollable. Order is the fix: by the time anything can fail, the user
+     can already scroll again. */
   allSheets().forEach(el => el.classList.add('hidden'));
   $('#scrim').classList.add('hidden');
+  syncBodyScroll();
 
   finalPending = null;
   bs = { d: null, id: null };
 
-  /* Inputs and warnings that are not rebuilt on open. */
-  hideRenameRow();
-  $('#scanManualInput').value = '';
-  $('#bsWarn').classList.add('hidden');
-  $('#aiError').classList.add('hidden');
-  $('#aiLoading').classList.add('hidden');
-  $('#aiGo').disabled = false;
-  resetRawToggle('#aiRawBtn', '#aiRaw');
-
-  document.body.style.overflow = '';
+  /* Inputs and warnings that are not rebuilt on open. Individually guarded
+     so one absent element cannot stop the others being reset. */
+  try {
+    hideRenameRow();
+    $('#scanManualInput').value = '';
+    $('#bsWarn').classList.add('hidden');
+    $('#aiError').classList.add('hidden');
+    $('#aiLoading').classList.add('hidden');
+    $('#aiGo').disabled = false;
+    resetRawToggle('#aiRawBtn', '#aiRaw');
+  } catch (err) {
+    console.warn('[Macros] sheet tidy-up failed:', err);
+  }
 }
 
 /* Both AI cards get the same collapsed-by-default debug view. Collapsed is

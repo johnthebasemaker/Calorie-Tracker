@@ -1,7 +1,7 @@
 {
   "name": "calorie-tracker",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Offline calorie, macro and water tracker for South Indian and Saudi/Gulf food.",
   "scripts": {
     "build": "node scripts/build-www.mjs",
