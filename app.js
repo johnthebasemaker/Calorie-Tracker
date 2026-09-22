@@ -55,6 +55,96 @@ const DEFAULT_REMIND = {
 /* The times these fire at were hardcoded when check-ins were fixed slots.
    They are yours to set now — as many or as few as suit the shift you are
    actually working. These four are only what a fresh install starts with. */
+/* Flex-gap shim, for WebViews older than 84.
+
+   About thirty flex layouts here space their children with `gap`. Before
+   Chromium 84 that property only worked in grid, so on a factory Android 11
+   WebView every one of them collapsed: labels ran into their hints
+   ("Biological sexchanges the BMR formula"), chips touched, buttons abutted.
+
+   Rather than hand-write thirty margin fallbacks that would drift from the
+   real layout, this measures whether flex gap works and, only if it does
+   not, turns each flex container's declared gap into margins on its
+   children. On any modern engine it returns after one probe and costs
+   nothing.
+
+   Margins go on the trailing side (right, or bottom for columns) so that a
+   child pushed across with margin-left: auto keeps doing so. Out-of-flow
+   children are skipped. Original margins are remembered, so re-running after
+   a re-render adds the gap once rather than stacking it. */
+(function flexGapShim() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'display:flex;flex-direction:column;row-gap:1px;' +
+                        'position:absolute;visibility:hidden;pointer-events:none';
+  probe.appendChild(document.createElement('div'));
+  probe.appendChild(document.createElement('div'));
+  document.body.appendChild(probe);
+  const supported = probe.scrollHeight === 1;
+  probe.remove();
+  if (supported) return;
+
+  const original = new WeakMap();
+  const px = v => parseFloat(v) || 0;
+
+  function apply() {
+    document.querySelectorAll('body *').forEach(el => {
+      const cs = getComputedStyle(el);
+      if (cs.display !== 'flex' && cs.display !== 'inline-flex') return;
+      const colGap = px(cs.columnGap), rowGap = px(cs.rowGap);
+      if (!colGap && !rowGap) return;
+      const column = cs.flexDirection.indexOf('column') === 0;
+      const wraps = cs.flexWrap !== 'nowrap';
+      const kids = Array.prototype.filter.call(el.children, k => {
+        const ks = getComputedStyle(k);
+        return ks.display !== 'none' && ks.position !== 'absolute' && ks.position !== 'fixed';
+      });
+      const remember = node => {
+        if (!original.has(node)) {
+          const ns = getComputedStyle(node);
+          original.set(node, { l: px(ns.marginLeft), r: px(ns.marginRight), b: px(ns.marginBottom) });
+        }
+        return original.get(node);
+      };
+      /* In a wrapping row every item carries a trailing gap, and the
+         container gives the same amount back on its right edge. Without that
+         the last item of each line carried a gap it did not need and was
+         pushed down onto a line of its own. */
+      if (wraps && !column) {
+        el.style.marginRight = (remember(el).r - colGap) + 'px';
+      }
+      kids.forEach((k, i) => {
+        const o = remember(k);
+        const last = i === kids.length - 1;
+        if (column) {
+          k.style.marginBottom = (o.b + (last ? 0 : rowGap)) + 'px';
+          return;
+        }
+        k.style.marginRight = (o.r + (last && !wraps ? 0 : colGap)) + 'px';
+        if (wraps) k.style.marginBottom = (o.b + rowGap) + 'px';
+        /* Bare text is a flex item too, but not an element, so it cannot
+           carry a margin itself. The element that follows it takes the gap
+           on its left instead: that is what separates "Biological sex" from
+           its "changes the BMR formula" hint. */
+        const prev = k.previousSibling;
+        if (prev && prev.nodeType === 3 && prev.textContent.trim()) {
+          k.style.marginLeft = (o.l + colGap) + 'px';
+        }
+      });
+    });
+  }
+
+  let queued = false;
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; apply(); });
+  };
+  document.documentElement.classList.add('no-flexgap');
+  new MutationObserver(schedule).observe(document.body,
+    { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  schedule();
+})();
+
 const DEFAULT_CHECKPOINTS = [8 * 60, 12 * 60, 17 * 60, 22 * 60 + 30];
 
 /* Everything downstream reads this rather than a constant: the banner, the

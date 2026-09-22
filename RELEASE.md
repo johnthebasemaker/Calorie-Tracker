@@ -71,11 +71,11 @@ Check a keystore against that at any time with:
    dashboard first. `versionName` is the string users see.
 
    ```
-   versionCode 3
-   versionName "0.0.3"
+   versionCode 5
+   versionName "0.0.5"
    ```
 
-   The live release is **0.0.2 / versionCode 2**.
+   The latest built release is **0.0.4 / versionCode 4**.
 
 2. **Build the bundle.**
 

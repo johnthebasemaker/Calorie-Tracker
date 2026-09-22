@@ -50,13 +50,27 @@
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+/* Nothing on html or body may set overflow or overscroll-behavior.
+
+   This rule used to carry `overflow-x: hidden` and `overscroll-behavior-y:
+   none` on BOTH elements. Giving body a non-visible overflow while html also
+   has one turns body into a scroll container of its own - one that is as
+   tall as its content and so can never scroll - and what an engine then does
+   with touch scrolling depends on the WebView build. On the factory Android
+   11 WebView it detached the sticky header; on some vendor WebViews it is a
+   known cause of pages that will not scroll at all, on every screen, from
+   first launch. The document must be the only thing that scrolls.
+
+   Horizontal overflow is contained on <main> instead, with overflow-x: clip,
+   which clips without creating a scroll container. Engines too old to know
+   clip simply ignore it, and nothing in the layout overflows sideways
+   anyway (checked at 320 px). */
 html, body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font: 400 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-  overscroll-behavior-y: none;
-  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -69,7 +83,7 @@ body {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: 4px;
   padding: calc(env(safe-area-inset-top) + 8px) 10px 8px;
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  background: var(--bg); background: color-mix(in srgb, var(--bg) 86%, transparent);
   backdrop-filter: saturate(160%) blur(14px);
   -webkit-backdrop-filter: saturate(160%) blur(14px);
   border-bottom: 1px solid var(--line);
@@ -108,7 +122,7 @@ body {
   margin-bottom: 6px;
 }
 .alertgo:active { filter: brightness(.94); }
-.alertrow.act .alertgo { background: color-mix(in srgb, var(--over) 9%, var(--card-2)); }
+.alertrow.act .alertgo { background: var(--card-2); background: color-mix(in srgb, var(--over) 9%, var(--card-2)); }
 .alertgo .dot {
   flex: 0 0 8px; width: 8px; height: 8px; margin-top: 6px; border-radius: 50%;
   background: var(--faint);
@@ -175,7 +189,7 @@ body {
 .calkey .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); display: inline-block; }
 
 /* ------------------------------ layout ------------------------------ */
-main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
+main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; overflow-x: clip; }
 .hidden { display: none !important; }
 
 .sect {
@@ -211,7 +225,7 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 }
 .ring-fg.over { stroke: var(--over); }
 .ringpct {
-  position: absolute; inset: 0; display: grid; place-items: center;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center;
   font-size: 14px; font-weight: 700;
 }
 
@@ -263,9 +277,9 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 
 /* Only the two states worth acting on get colour. "close", "low" and "met"
    stay quiet, so a glance finds the problems rather than reading six badges. */
-.microgrid .micro-over  { background: color-mix(in srgb, var(--over) 13%, var(--card-2)); }
+.microgrid .micro-over  { background: var(--card-2); background: color-mix(in srgb, var(--over) 13%, var(--card-2)); }
 .microgrid .micro-over  b, .microgrid .micro-over  i { color: var(--over); }
-.microgrid .micro-under { background: color-mix(in srgb, var(--short) 15%, var(--card-2)); }
+.microgrid .micro-under { background: var(--card-2); background: color-mix(in srgb, var(--short) 15%, var(--card-2)); }
 .microgrid .micro-under b, .microgrid .micro-under i { color: var(--short); }
 .micronote { font-size: 12px; color: var(--faint); margin: 10px 2px 0; line-height: 1.45; }
 
@@ -276,14 +290,14 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 
 .focuschips { margin: 2px 0 12px; }
 .focuschips .chip.on {
-  background: color-mix(in srgb, var(--accent) 20%, var(--card-2));
+  background: var(--card-2); background: color-mix(in srgb, var(--accent) 20%, var(--card-2));
   border-color: var(--accent); color: var(--accent); font-weight: 650;
 }
 
-.field.customised input { border-color: color-mix(in srgb, var(--short) 55%, var(--line)); }
+.field.customised input { border-color: var(--line); border-color: color-mix(in srgb, var(--short) 55%, var(--line)); }
 .customtag {
   margin-left: 8px; padding: 1px 7px; border-radius: 999px; border: 0;
-  background: color-mix(in srgb, var(--short) 20%, transparent);
+  background: var(--card-2); background: color-mix(in srgb, var(--short) 20%, transparent);
   color: var(--short); font-size: 9.5px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .04em; cursor: pointer;
 }
@@ -358,14 +372,14 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 .cpchips { margin-top: 16px; }
 .cpchips .chip { flex: 1 1 auto; text-align: center; font-size: 13px; padding: 8px 10px; }
 .cpchips .chip small { display: block; margin: 2px 0 0; font-size: 11px; }
-.cpchips .chip.done { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.cpchips .chip.due { border-color: color-mix(in srgb, var(--c) 65%, transparent); }
+.cpchips .chip.done { border-color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.cpchips .chip.due { border-color: var(--c); border-color: color-mix(in srgb, var(--c) 65%, transparent); }
 
 /* ------------------------------ banner ------------------------------ */
 .banner {
   margin-bottom: 14px; padding: 14px; border-radius: var(--radius);
-  background: color-mix(in srgb, var(--c) 13%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  background: var(--card); background: color-mix(in srgb, var(--c) 13%, var(--card));
+  border: 1px solid var(--c); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
 }
 .bannerhead { display: flex; align-items: flex-start; gap: 10px; }
 .bannerhead b { flex: 1; font-size: 15px; line-height: 1.35; }
@@ -392,8 +406,8 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 /* ------------------------------ advice ------------------------------ */
 .advice {
   margin-top: 16px; padding: 13px 15px; border-radius: 12px;
-  background: color-mix(in srgb, var(--ai) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ai) 38%, transparent);
+  background: var(--card-2); background: color-mix(in srgb, var(--ai) 12%, transparent);
+  border: 1px solid var(--ai); border: 1px solid color-mix(in srgb, var(--ai) 38%, transparent);
 }
 .advice > b { display: block; color: var(--ai); font-size: 13px; margin-bottom: 5px; }
 .advice p { margin: 0; font-size: 14px; line-height: 1.5; }
@@ -403,7 +417,7 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 }
 .advicefoot span { flex: 1 1 150px; min-width: 0; font-size: 11.5px; color: var(--faint); line-height: 1.4; }
 .advicefoot button {
-  flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--ai) 45%, transparent);
+  flex: 0 0 auto; border: 1px solid var(--ai); border: 1px solid color-mix(in srgb, var(--ai) 45%, transparent);
   background: transparent; color: var(--ai);
   font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 99px;
 }
@@ -439,7 +453,7 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
 }
 .chip:active { background: var(--card-2); }
 .chip small { color: var(--dim); margin-left: 5px; font-weight: 400; }
-.chip.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.chip.on { border-color: var(--accent); background: var(--card-2); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
 /* ------------------------------ lists ------------------------------ */
 /* minmax(0,1fr) stops a long product name from widening the whole page —
@@ -465,8 +479,8 @@ main { padding: 12px 14px 24px; max-width: 620px; margin: 0 auto; }
   padding: 2px 6px; border-radius: 5px; background: var(--card-2); color: var(--faint);
   margin-left: 6px; vertical-align: 2px;
 }
-.tag.mine { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-.tag.off  { background: color-mix(in srgb, var(--p) 18%, transparent); color: var(--p); }
+.tag.mine { background: var(--card-2); background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.tag.off  { background: var(--card-2); background: color-mix(in srgb, var(--p) 18%, transparent); color: var(--p); }
 
 /* ------------------------------ buttons ------------------------------ */
 button { font-family: inherit; cursor: pointer; }
@@ -516,8 +530,8 @@ button { font-family: inherit; cursor: pointer; }
 .reader img[alt="Info icon"] { display: none; }
 .scanerror {
   margin-top: 14px; padding: 13px 15px; border-radius: 12px;
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: var(--card-2); background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
   color: var(--text); font-size: 13.5px; line-height: 1.5;
 }
 .scanerror b { display: block; margin-bottom: 4px; color: var(--danger); }
@@ -540,8 +554,8 @@ button { font-family: inherit; cursor: pointer; }
 
 .aibanner {
   margin: 4px 0 12px; padding: 12px 14px; border-radius: 12px;
-  background: color-mix(in srgb, var(--ai) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ai) 45%, transparent);
+  background: var(--card-2); background: color-mix(in srgb, var(--ai) 14%, transparent);
+  border: 1px solid var(--ai); border: 1px solid color-mix(in srgb, var(--ai) 45%, transparent);
   font-size: 13px; line-height: 1.5;
 }
 .aibanner b { display: block; color: var(--ai); font-size: 13.5px; margin-bottom: 3px; }
@@ -554,17 +568,17 @@ button { font-family: inherit; cursor: pointer; }
 }
 .spinner {
   width: 17px; height: 17px; flex: 0 0 17px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--ai) 30%, transparent);
+  border: 2px solid var(--ai); border: 2px solid color-mix(in srgb, var(--ai) 30%, transparent);
   border-top-color: var(--ai);
   animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.tag.ai { background: color-mix(in srgb, var(--ai) 20%, transparent); color: var(--ai); }
+.tag.ai { background: var(--card-2); background: color-mix(in srgb, var(--ai) 20%, transparent); color: var(--ai); }
 /* Numbers worked out from a recipe rather than read off a published table. */
-.tag.est { background: color-mix(in srgb, var(--short) 20%, transparent); color: var(--short); }
+.tag.est { background: var(--card-2); background: color-mix(in srgb, var(--short) 20%, transparent); color: var(--short); }
 /* A product Open Food Facts only has a non-English name for. */
-.tag.rename { background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--c); }
+.tag.rename { background: var(--card-2); background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--c); }
 
 /* --------------------------- rename in sheet --------------------------- */
 .psnamerow { display: flex; align-items: baseline; gap: 10px; }
@@ -587,7 +601,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .arabicnote {
   margin: 8px 0 0; padding: 10px 12px; border-radius: 10px;
-  background: color-mix(in srgb, var(--c) 14%, transparent);
+  background: var(--card-2); background: color-mix(in srgb, var(--c) 14%, transparent);
   font-size: 12.5px; color: var(--text); line-height: 1.45;
 }
 
@@ -633,7 +647,7 @@ button { font-family: inherit; cursor: pointer; }
   display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
   height: calc(var(--tabh) + env(safe-area-inset-bottom));
   padding-bottom: env(safe-area-inset-bottom);
-  background: color-mix(in srgb, var(--card) 92%, transparent);
+  background: var(--card); background: color-mix(in srgb, var(--card) 92%, transparent);
   backdrop-filter: saturate(160%) blur(14px);
   -webkit-backdrop-filter: saturate(160%) blur(14px);
   border-top: 1px solid var(--line);
@@ -644,12 +658,13 @@ button { font-family: inherit; cursor: pointer; }
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
 }
 .tab .ic { font-size: 17px; line-height: 1; }
+.tab .ic svg { width: 17px; height: 17px; fill: currentColor; display: block; margin: 0 auto; }
 .tab > :not(.ic) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab.active { color: var(--accent); }
 
 /* ------------------------------ sheets ------------------------------ */
 .scrim {
-  position: fixed; inset: 0; z-index: 40;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 40;
   background: rgba(0,0,0,.45); backdrop-filter: blur(2px);
 }
 .sheet {
@@ -813,8 +828,8 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* Same look as the burn check-in nudge, so it reads as the same kind of thing. */
 .wkbanner {
-  position: relative; background: color-mix(in srgb, var(--accent) 12%, var(--card));
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  position: relative; background: var(--card); background: color-mix(in srgb, var(--accent) 12%, var(--card));
+  border: 1px solid var(--line); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   border-radius: var(--radius); padding: 14px 40px 14px 14px; margin-bottom: 14px;
 }
 .wkbanner b { display: block; font-size: 15px; }
@@ -837,3 +852,10 @@ input[type=number] { -moz-appearance: textfield; }
   letter-spacing: .04em; text-transform: uppercase; color: var(--dim);
 }
 .subsect:first-child { margin-top: 4px; }
+
+/* A tapped tab kept the engine's default focus ring on older WebViews - an
+   orange box round whichever tab you last touched. The active tab already
+   says where you are; keyboard focus still gets a ring via :focus-visible
+   on engines that understand it. */
+.tab:focus { outline: none; }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
